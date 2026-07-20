@@ -1,11 +1,15 @@
+use serde::{Serialize, Deserialize};
 use std::collections::{HashSet, HashMap};
 
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Policy {
     pub html: HtmlPolicy,
     pub urls: UrlPolicy,
     pub resources: ResourcePolicy
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HtmlPolicy {
     
     // lista dei tag consentiti
@@ -18,6 +22,8 @@ pub struct HtmlPolicy {
     pub rewrite_active_content: bool
 }
 
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UrlPolicy {
     
     // domini noti per malware o tracking
@@ -27,6 +33,8 @@ pub struct UrlPolicy {
     pub check_idn_homographs: bool
 }
 
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResourcePolicy {
     
     // profondità massima per scaricare risorse annidate
@@ -73,6 +81,6 @@ impl Default for Policy {
         Self {
             html, urls, resources
         }
-        
+
     }
 }
