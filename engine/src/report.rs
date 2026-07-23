@@ -13,7 +13,10 @@ pub struct SanitizationReport {
     pub file_blocked: bool,
 
     // lista delle azioni
-    pub actions: Vec<SanitizationAction>
+    pub actions: Vec<SanitizationAction>,
+
+    // lista delle risorse da scaricare (popolato nel parser, gestito da network)
+    pub resources_to_fetch: Vec<String>
 }
 
 

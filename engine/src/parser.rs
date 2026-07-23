@@ -13,7 +13,8 @@ pub fn sanitize_html(html_input: &[u8], policy: &Policy) -> Result<(Vec<u8>, San
         file_name: "da_definire".to_string(),
         time_elapsed: 0,
         file_blocked: false,
-        actions: Vec::new()
+        actions: Vec::new(),
+        resources_to_fetch: Vec::new()
     }));
 
     let report_closure = Rc::clone(&report);
@@ -64,6 +65,8 @@ pub fn sanitize_html(html_input: &[u8], policy: &Policy) -> Result<(Vec<u8>, San
                                     if policy.urls.blocked_domains.contains(host) {
                                         // dominio noto per malware o tracking
                                         attributi_da_rimuovere.push(attr_name);
+                                    } else if attr_name == "src" {
+                                        report_closure.borrow_mut().resources_to_fetch.push(parsed_url.to_string());
                                     }
                                 }
                             }

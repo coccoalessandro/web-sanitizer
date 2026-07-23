@@ -3,3 +3,4 @@ members = [
     "engine",
     "cli"
 ]
+resolver = "3"
