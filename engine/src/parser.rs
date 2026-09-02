@@ -40,6 +40,30 @@ pub fn sanitize_html(html_input: &[u8], policy: &Policy) -> Result<(Vec<u8>, San
                         return Ok(())
                     }
 
+                    // META REFRESH
+                    if nome_tag == "meta" {
+                        if let Some(http_equiv) = el.get_attribute("http-equiv") {
+                            if http_equiv.to_lowercase() == "refresh" {
+                                let azione = SanitizationAction {
+                                    rule_fired: "Blocco meta refresh".to_string(),
+                                    location: (0, 0),
+                                    original_fragment: "<meta http-equiv=\"refresh\">".to_string(),
+                                    replaced_fragment: "Tag rimosso".to_string()
+                                };
+
+                                report_closure.borrow_mut().actions.push(azione);
+                                el.remove();
+
+                                return Ok(())
+                            }
+                        }
+                    }
+
+                    // iframe and object handling
+                    if nome_tag == "iframe" || nome_tag == "object" {
+                        el.set_attribute("sandbox", "").unwrap_or(());
+                    }
+
                     // CONTROLLO ATTRIBUTI
                     let attributi_consentiti = policy.html.allowed_attributes.get(&nome_tag);
 
