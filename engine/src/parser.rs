@@ -61,6 +61,14 @@ pub fn sanitize_html(html_input: &[u8], policy: &Policy) -> Result<(Vec<u8>, San
                             let url_value = attr.value();
 
                             if let Ok(parsed_url) = url::Url::parse(&url_value) {
+
+                                // URI scheme
+                                let scheme = parsed_url.scheme();
+                                if scheme == "javascript" || scheme == "data" {
+                                    attributi_da_rimuovere.push(attr_name);
+                                    continue;
+                                }
+
                                 if let Some(host) = parsed_url.host_str() {
                                     if policy.urls.blocked_domains.contains(host) {
                                         // dominio noto per malware o tracking
@@ -69,6 +77,8 @@ pub fn sanitize_html(html_input: &[u8], policy: &Policy) -> Result<(Vec<u8>, San
                                         report_closure.borrow_mut().resources_to_fetch.push(parsed_url.to_string());
                                     }
                                 }
+                            } else {
+                                attributi_da_rimuovere.push(attr_name);
                             }
                         }
                     }
