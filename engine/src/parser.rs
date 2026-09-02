@@ -70,8 +70,9 @@ pub fn sanitize_html(html_input: &[u8], policy: &Policy) -> Result<(Vec<u8>, San
                                 }
 
                                 if let Some(host) = parsed_url.host_str() {
-                                    if policy.urls.blocked_domains.contains(host) {
-                                        // dominio noto per malware o tracking
+                                    // IDN HOMOGRAPH PATTERN CHECK
+                                    if host.starts_with("xn--") || policy.urls.blocked_domains.contains(host) {
+                                        // dominio noto per malware o tracking o sospetto attacco omografo
                                         attributi_da_rimuovere.push(attr_name);
                                     } else if attr_name == "src" {
                                         report_closure.borrow_mut().resources_to_fetch.push(parsed_url.to_string());
