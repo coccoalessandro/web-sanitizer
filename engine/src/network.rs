@@ -59,6 +59,19 @@ pub fn fetch_resources(urls: &[String], resource_policy: &ResourcePolicy) -> Res
 
                 let _ = reader.read_to_end(&mut vec_bytes);
 
+
+                // MIME confusion
+                if let Some(kind) = infer::get(&vec_bytes) {
+                    let real_mime = kind.mime_type();
+
+                    if real_mime.starts_with("application/x-dosexec") // .exe Windows
+                    || real_mime.starts_with("application/x-executable") // Linux/Mac
+                    || real_mime.starts_with("applicatio/x-sh") // script shell
+                    { 
+                        continue;
+                    }
+                }
+
                 downloaded_files.insert(url.to_string(), vec_bytes);
 
             },
