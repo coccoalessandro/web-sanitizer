@@ -19,22 +19,15 @@ fn main() {
     blocked_domains.insert("malware.com".to_string());
 
 
-    let policy = Policy {
-        html: HtmlPolicy { 
-            allowed_tags, 
-            allowed_attributes,
-            rewrite_active_content: false
-        },
-        urls: UrlPolicy { 
-            blocked_domains, 
-            check_idn_homographs: false 
-        },
-        resources: ResourcePolicy {
-            max_fetch_depth: 10,
-            max_resource_size_bytes: 2 * 1024 * 1024,
-            timeout_ms: 5000
-        }
-    };
+    let mut policy = Policy::default();
+    policy.html.allowed_tags = allowed_tags;
+    policy.html.allowed_attributes = allowed_attributes;
+    policy.html.rewrite_active_content = false;
+    policy.urls.blocked_domains = blocked_domains;
+    policy.urls.check_idn_homographs = false;
+    policy.resources.max_fetch_depth = 10;
+    policy.resources.max_resource_size_bytes = 2 * 1024 * 1024;
+    policy.resources.timeout_ms = 5000;
 
     let html_sporco = r#"
         <div>
