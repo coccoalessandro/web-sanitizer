@@ -1,7 +1,14 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use engine::pipeline::{run_pipeline, Job};
 use engine::policy::Policy;
 use std::path::PathBuf;
+
+#[derive(ValueEnum, Clone, Debug)]
+enum Profile {
+    Strict,
+    Balanced,
+    Relaxed,
+}
 
 /// Web Sanitizer CLI
 #[derive(Parser, Debug)]
@@ -14,6 +21,10 @@ struct Args {
     /// Input URLs to sanitize
     #[arg(short, long)]
     urls: Vec<String>,
+
+    /// Predefined security profile to use (overrides config file if provided)
+    #[arg(short, long)]
+    profile: Option<Profile>,
 }
 
 fn main() {
@@ -34,9 +45,27 @@ fn main() {
         return;
     }
 
-    println!("Starting web-sanitizer with {} jobs...", jobs.len());
+    let policy = match args.profile {
+        Some(Profile::Strict) => {
+            println!("Using 'Strict' security profile.");
+            Policy::strict()
+        }
+        Some(Profile::Relaxed) => {
+            println!("Using 'Relaxed' security profile.");
+            Policy::relaxed()
+        }
+        Some(Profile::Balanced) => {
+            println!("Using 'Balanced' security profile.");
+            Policy::balanced()
+        }
+        None => {
+            // TODO: In the future, attempt to load from config file here before falling back to default
+            println!("No profile specified. Using default 'Balanced' configuration.");
+            Policy::default()
+        }
+    };
 
-    let policy = Policy::default(); // Eventually load this from a config file
+    println!("Starting web-sanitizer with {} jobs...", jobs.len());
 
     let results = run_pipeline(jobs, policy);
 
