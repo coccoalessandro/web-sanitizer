@@ -13,6 +13,33 @@ pub fn fetch_resources(urls: &[String], resource_policy: &ResourcePolicy) -> Res
     let agent = ureq::AgentBuilder::new().timeout(Duration::from_millis(resource_policy.timeout_ms)).build();
     
     for url in urls {
+
+        let parsed_url = match url::Url::parse(url) {
+            Ok(u) => u,
+            Err(_) => continue
+        };
+
+        // SSRF check: block the requests to private/local IPs
+        if let Some(host) = parsed_url.host() {
+            match host {
+                url::Host::Ipv4(ip) => {
+                    if ip.is_loopback() || ip.is_private() || ip.is_link_local() {
+                        continue; // skip this URL because private/local/loopback
+                    }
+                }
+                url::Host::Ipv6(ip) => {
+                    if ip.is_loopback() {
+                        continue;
+                    }
+                }
+                url::Host::Domain(domain) => {
+                    if domain == "localhost" {
+                        continue;
+                    }
+                }
+            }
+        }
+
         let response = agent.get(url).call();
 
         match response {
@@ -31,6 +58,19 @@ pub fn fetch_resources(urls: &[String], resource_policy: &ResourcePolicy) -> Res
                 let mut vec_bytes: Vec<u8> = Vec::new();
 
                 let _ = reader.read_to_end(&mut vec_bytes);
+
+
+                // MIME confusion
+                if let Some(kind) = infer::get(&vec_bytes) {
+                    let real_mime = kind.mime_type();
+
+                    if real_mime.starts_with("application/x-dosexec") // .exe Windows
+                    || real_mime.starts_with("application/x-executable") // Linux/Mac
+                    || real_mime.starts_with("applicatio/x-sh") // script shell
+                    { 
+                        continue;
+                    }
+                }
 
                 downloaded_files.insert(url.to_string(), vec_bytes);
 
