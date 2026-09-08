@@ -1,3 +1,11 @@
+//! Streaming HTML parsing and zero-copy sanitization engine.
+//!
+//! Uses [`lol_html`] to inspect and rewrite HTML elements on the fly according to policy rules:
+//! - Strips disallowed tags and unauthorized attributes.
+//! - Sandboxes active containers (`<iframe>`, `<object>`).
+//! - Blocks meta-refresh redirects.
+//! - Validates and sanitizes link targets (filtering `javascript:`, `data:`, IDN homographs, and blocked domains).
+
 use std::cell::RefCell;
 use std::rc::Rc;
 use lol_html::{element, HtmlRewriter, Settings};
@@ -5,6 +13,14 @@ use lol_html::{element, HtmlRewriter, Settings};
 use crate::policy::Policy;
 use crate::report::{SanitizationAction, SanitizationReport};
 
+/// Sanitizes raw HTML input bytes according to the provided [`Policy`].
+///
+/// Returns a tuple containing:
+/// - `Vec<u8>`: The sanitized output HTML bytes.
+/// - [`SanitizationReport`]: Detailed log of actions taken and extracted sub-resource URLs.
+///
+/// # Errors
+/// Returns an error string if the underlying HTML rewriter fails or if report extraction fails.
 pub fn sanitize_html(html_input: &[u8], policy: &Policy) -> Result<(Vec<u8>, SanitizationReport), String> {
 
     let mut vector: Vec<u8> = Vec::new();

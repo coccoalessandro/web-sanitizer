@@ -1,6 +1,8 @@
+//! Standalone example / sanity test runner for the engine crate.
+
 use std::collections::{HashMap, HashSet};
 
-use engine::policy::{HtmlPolicy, Policy, ResourcePolicy, UrlPolicy};
+use engine::policy::Policy;
 use engine::parser::sanitize_html;
 
 fn main() {

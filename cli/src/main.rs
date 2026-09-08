@@ -1,16 +1,26 @@
+//! Command-Line Interface (CLI) for Web Sanitizer.
+//!
+//! Provides batch processing of local HTML files and remote URLs,
+//! with selectable security profiles (`Strict`, `Balanced`, `Relaxed`)
+//! and JSON telemetry output.
+
 use clap::{Parser, ValueEnum};
 use engine::pipeline::{run_pipeline, Job};
 use engine::policy::Policy;
 use std::path::PathBuf;
 
+/// Predefined security profiles for the sanitization engine.
 #[derive(ValueEnum, Clone, Debug)]
 enum Profile {
+    /// Strict profile: minimal HTML formatting, zero sub-resource downloads, aggressive link removal.
     Strict,
+    /// Balanced profile (default): standard tag whitelist, sandboxing, and safe network limits.
     Balanced,
+    /// Relaxed profile: rich tags (tables, iframes, media), higher resource caps, proxy link rewrites.
     Relaxed,
 }
 
-/// Web Sanitizer CLI
+/// Web Sanitizer CLI - defensive HTML and web resource cleaner.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {

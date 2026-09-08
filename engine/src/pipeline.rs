@@ -1,3 +1,5 @@
+//! Concurrent batch execution pipeline using crossbeam channels and a worker thread pool.
+
 use crossbeam_channel::{unbounded};
 use std::collections::HashMap;
 use std::fs;
@@ -10,13 +12,17 @@ use crate::parser::sanitize_html;
 use crate::policy::Policy;
 use crate::report::SanitizationReport;
 
+/// Represents an individual input target to be processed by the pipeline.
 #[derive(Clone, Debug)]
 pub enum Job {
+    /// A local file on the filesystem.
     LocalFile(PathBuf),
+    /// A remote URL to fetch and sanitize.
     RemoteUrl(String),
 }
 
 impl Job {
+    /// Returns a human-readable identifier for the job target.
     pub fn name(&self) -> String {
         match self {
             Job::LocalFile(p) => p.display().to_string(),
@@ -25,16 +31,26 @@ impl Job {
     }
 }
 
+/// The outcome of processing a [`Job`].
 pub struct JobResult {
+    /// The input source associated with this result.
     pub source: Job,
+    /// The sanitized output bytes and audit report, or an error description.
     pub output: Result<(Vec<u8>, SanitizationReport), String>,
 }
 
+/// Thread-safe shared state shared across pipeline worker threads.
 pub struct SharedState {
+    /// Active security policy configuration.
     pub policy: Policy,
+    /// Thread-safe in-memory cache of downloaded sub-resources `(URL -> content)`.
     pub resource_cache: HashMap<String, Vec<u8>>,
 }
 
+/// Runs a concurrent batch pipeline over a collection of [`Job`]s using the specified [`Policy`].
+///
+/// Spawns worker threads based on available CPU parallelism, distributing tasks over an unbounded
+/// crossbeam channel and gathering results into a vector.
 pub fn run_pipeline(jobs: Vec<Job>, policy: Policy) -> Vec<JobResult> {
     let (job_tx, job_rx) = unbounded::<Job>();
     let (result_tx, result_rx) = unbounded::<JobResult>();
@@ -81,6 +97,8 @@ pub fn run_pipeline(jobs: Vec<Job>, policy: Policy) -> Vec<JobResult> {
     final_results
 }
 
+/// Processes an individual job: reads the content (file or remote URL), executes `sanitize_html`,
+/// resolves any embedded sub-resources if configured, and builds the `JobResult`.
 fn process_job(job: Job, state: &Arc<RwLock<SharedState>>) -> JobResult {
     let start_time = std::time::Instant::now();
     let policy = {

@@ -1,69 +1,86 @@
+//! Security policies and configuration profiles for the sanitization engine.
+
 use serde::{Serialize, Deserialize};
 use std::collections::{HashSet, HashMap};
 
+/// Top-level configuration aggregating all security policy rules.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Policy {
+    /// Rules governing HTML structure, elements, and attributes.
     pub html: HtmlPolicy,
+    /// Rules governing URL validation, link rewriting, and domain filtering.
     pub urls: UrlPolicy,
-    pub resources: ResourcePolicy
+    /// Rules governing external sub-resource fetching and size limits.
+    pub resources: ResourcePolicy,
 }
 
+/// Action to perform when a suspicious link (e.g., untrusted domain or IDN homograph) is detected.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum LinkAction {
+    /// Completely strip the link attribute/element.
     Remove,
+    /// Replace the link target with a warning placeholder string.
     ReplaceWithWarning(String),
+    /// Rewrite the target URL (e.g., prepend a safe proxy prefix).
     Rewrite(String),
 }
 
+/// Policy governing HTML element filtering, attribute allow-lists, and active content handling.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HtmlPolicy {
-    // allowed tags
+    /// Allowed HTML tag names (e.g., `"p"`, `"a"`, `"div"`). All other tags are removed.
     pub allowed_tags: HashSet<String>,
-    // allowed attributes for each tag
+    /// Allowed attributes mapped per tag name (e.g., `"a" => {"href", "title"}`).
     pub allowed_attributes: HashMap<String, HashSet<String>>,
-    // if true, rewrites active content
+    /// Whether to rewrite active content (e.g., sandboxing iframes) instead of removing outright.
     pub rewrite_active_content: bool,
-    // prevents javascript: in href/src attributes
+    /// Disallow `javascript:` pseudo-protocol URIs in `href` and `src` attributes.
     pub block_javascript_uris: bool,
-    // prevents data: in href/src attributes (often used for malicious payloads)
+    /// Disallow `data:` inline payload URIs in `href` and `src` attributes.
     pub block_data_uris: bool,
-    // blocks meta-refresh redirects
+    /// Disallow `<meta http-equiv="refresh">` client-side redirect tags.
     pub block_meta_refresh: bool,
-    // allowed origins for iframe and object
+    /// Whitelist of trusted origins allowed inside `<iframe>` and `<object>` elements.
     pub trusted_iframe_origins: HashSet<String>,
 }
 
+/// Policy governing link inspection, domain block-lists, and anti-spoofing checks.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UrlPolicy {
-    // domains known for malware
+    /// Hostnames known for malware or phishing; references are dropped or rewritten.
     pub blocked_domains: HashSet<String>,
-    // tracking domains
+    /// Hostnames associated with tracking or analytics beacons.
     pub tracker_domains: HashSet<String>,
-    // apply checks for IDN homograph attacks (Unicode normalization confusion)
+    /// Enable detection of IDN homograph attacks (e.g., `xn--` punycode spoofing).
     pub check_idn_homographs: bool,
-    // action to take when a suspicious link is encountered
+    /// Action executed when a suspicious or blocked link is encountered.
     pub suspicious_link_action: LinkAction,
 }
 
+/// Policy governing remote sub-resource fetching, resource limits, and anti-SSRF protections.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResourcePolicy {
-    // maximum depth to download nested resources
+    /// Maximum recursive depth for downloading linked sub-resources (0 disables fetching).
     pub max_fetch_depth: u8,
-    // maximum number of requests per single input
+    /// Maximum total HTTP requests permitted per input job.
     pub max_requests_per_job: usize,
-    // maximum byte limit to download a single resource (DoS protection)
+    /// Maximum byte size permitted for a single downloaded resource (DoS prevention).
     pub max_resource_size_bytes: usize,
-    // decompression limit to avoid compression/XML bombs (DoS protection)
+    /// Maximum decompressed payload size permitted (compression/XML bomb defense).
     pub max_decompressed_size_bytes: usize,
+    /// Network request timeout in milliseconds.
     pub timeout_ms: u64,
-    // prevents SSRF (Server-Side Request Forgery) by blocking local IPs
+    /// Block requests targeting private, link-local, or loopback IPs (SSRF prevention).
     pub block_internal_ips: bool,
-    // verify real content type (sniffing) to avoid MIME confusion
+    /// Sniff real content bytes using magic numbers to prevent MIME-confusion exploits.
     pub enforce_mime_sniffing: bool,
 }
 
 impl Policy {
-    /// Balanced profile (Standard) - useful for most cases
+    /// Creates a balanced default profile suitable for general-purpose web content.
+    ///
+    /// Permits common formatting tags and links, blocks active scripts/redirects,
+    /// checks IDN homographs, and enforces moderate resource download limits.
     pub fn balanced() -> Self {
         let allowed_tags = HashSet::from([
             "p".to_string(), "a".to_string(), "div".to_string(), "span".to_string(),
@@ -102,7 +119,10 @@ impl Policy {
         }
     }
 
-    /// Strict profile (Strict) - for highly untrusted inputs (e.g. public comments)
+    /// Creates a strict profile for highly untrusted inputs (e.g., user comments, emails).
+    ///
+    /// Restricts HTML to minimal formatting tags, disables external resource fetching entirely,
+    /// and drops any suspicious links outright.
     pub fn strict() -> Self {
         let allowed_tags = HashSet::from([
             "p".to_string(), "a".to_string(), "b".to_string(), "i".to_string(), "em".to_string(), "strong".to_string()
@@ -139,7 +159,10 @@ impl Policy {
         }
     }
 
-    /// Relaxed profile (Relaxed) - for semi-trusted inputs (e.g. internal dashboards)
+    /// Creates a relaxed profile for semi-trusted inputs (e.g., internal CMS/dashboards).
+    ///
+    /// Allows rich layout tags (tables, iframes, images), higher resource budgets,
+    /// and proxy rewriting for suspicious links.
     pub fn relaxed() -> Self {
         let allowed_tags = HashSet::from([
             "p".to_string(), "a".to_string(), "div".to_string(), "span".to_string(),

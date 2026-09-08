@@ -1,3 +1,10 @@
+//! Safe embedded resource fetcher with SSRF prevention and content sniffing defenses.
+//!
+//! Features:
+//! - SSRF prevention: blocks private, loopback, link-local IPs and localhost.
+//! - MIME confusion defense: sniffs payload bytes with [`infer`] to detect executable binaries.
+//! - Resource limits: enforces timeout, content-length limits, streaming byte caps, and recursion depth.
+
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use std::io::Read;
@@ -5,6 +12,12 @@ use ureq;
 
 use crate::policy::Policy;
 
+/// Recursively downloads and sanitizes embedded web resources up to `policy.resources.max_fetch_depth`.
+///
+/// Applies SSRF filtering on hosts, enforces maximum byte downloads, validates actual MIME types
+/// against executable payloads, and recursively sanitizes nested HTML resources.
+///
+/// Returns a map of `(URL -> sanitized or raw bytes)`.
 pub fn fetch_resources(
     urls: &[String], 
     policy: &Policy,
