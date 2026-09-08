@@ -126,7 +126,15 @@ fn process_job(job: Job, state: &Arc<RwLock<SharedState>>) -> JobResult {
             report.file_name = job.name();
             report.time_elapsed = start_time.elapsed().as_millis() as u64;
 
-            // Here we would handle sub-resources recursively using state.write()...
+            if policy.resources.max_fetch_depth > 0 && !report.resources_to_fetch.is_empty() {
+                let mut visited = std::collections::HashSet::new();
+                if let Ok(resources) = crate::network::fetch_resources(&report.resources_to_fetch, &policy, 1, &mut visited) {
+                    let mut state_guard = state.write().unwrap();
+                    for (url, bytes) in resources {
+                        state_guard.resource_cache.insert(url, bytes);
+                    }
+                }
+            }
             
             JobResult {
                 source: job,
