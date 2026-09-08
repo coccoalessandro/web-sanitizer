@@ -17,53 +17,53 @@ pub enum LinkAction {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HtmlPolicy {
-    // tag consentiti
+    // allowed tags
     pub allowed_tags: HashSet<String>,
-    // attributi consentiti per ogni tag
+    // allowed attributes for each tag
     pub allowed_attributes: HashMap<String, HashSet<String>>,
-    // se true, riscrive i contenuti attivi
+    // if true, rewrites active content
     pub rewrite_active_content: bool,
-    // previene javascript: negli attributi href/src
+    // prevents javascript: in href/src attributes
     pub block_javascript_uris: bool,
-    // previene data: negli attributi href/src (spesso usati per payload maligni)
+    // prevents data: in href/src attributes (often used for malicious payloads)
     pub block_data_uris: bool,
-    // blocca redirect meta-refresh
+    // blocks meta-refresh redirects
     pub block_meta_refresh: bool,
-    // origini consentite per iframe e object
+    // allowed origins for iframe and object
     pub trusted_iframe_origins: HashSet<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UrlPolicy {
-    // domini noti per malware
+    // domains known for malware
     pub blocked_domains: HashSet<String>,
-    // domini di tracciamento
+    // tracking domains
     pub tracker_domains: HashSet<String>,
-    // applica controlli per attacchi IDN homograph (Unicode normalization confusion)
+    // apply checks for IDN homograph attacks (Unicode normalization confusion)
     pub check_idn_homographs: bool,
-    // azione da eseguire quando si incontra un link sospetto
+    // action to take when a suspicious link is encountered
     pub suspicious_link_action: LinkAction,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResourcePolicy {
-    // profondità massima per scaricare risorse annidate
+    // maximum depth to download nested resources
     pub max_fetch_depth: u8,
-    // numero massimo di richieste per singolo input
+    // maximum number of requests per single input
     pub max_requests_per_job: usize,
-    // limite massimo in bytes per scaricare una singola risorsa (DoS protection)
+    // maximum byte limit to download a single resource (DoS protection)
     pub max_resource_size_bytes: usize,
-    // limite di decompressione per evitare compression/XML bombs (DoS protection)
+    // decompression limit to avoid compression/XML bombs (DoS protection)
     pub max_decompressed_size_bytes: usize,
     pub timeout_ms: u64,
-    // previene SSRF (Server-Side Request Forgery) bloccando IP locali
+    // prevents SSRF (Server-Side Request Forgery) by blocking local IPs
     pub block_internal_ips: bool,
-    // verifica il tipo di contenuto reale (sniffing) per evitare MIME confusion
+    // verify real content type (sniffing) to avoid MIME confusion
     pub enforce_mime_sniffing: bool,
 }
 
 impl Policy {
-    /// Profilo bilanciato (Standard) - utile per la maggior parte dei casi
+    /// Balanced profile (Standard) - useful for most cases
     pub fn balanced() -> Self {
         let allowed_tags = HashSet::from([
             "p".to_string(), "a".to_string(), "div".to_string(), "span".to_string(),
@@ -102,7 +102,7 @@ impl Policy {
         }
     }
 
-    /// Profilo restrittivo (Strict) - per input altamente non attendibili (es. commenti pubblici)
+    /// Strict profile (Strict) - for highly untrusted inputs (e.g. public comments)
     pub fn strict() -> Self {
         let allowed_tags = HashSet::from([
             "p".to_string(), "a".to_string(), "b".to_string(), "i".to_string(), "em".to_string(), "strong".to_string()
@@ -115,20 +115,20 @@ impl Policy {
             html: HtmlPolicy {
                 allowed_tags,
                 allowed_attributes,
-                rewrite_active_content: false, // rimuove direttamente invece di tentare di riscrivere
+                rewrite_active_content: false, // directly removes instead of attempting to rewrite
                 block_javascript_uris: true,
                 block_data_uris: true,
                 block_meta_refresh: true,
-                trusted_iframe_origins: HashSet::new(), // nessun iframe
+                trusted_iframe_origins: HashSet::new(), // no iframes
             },
             urls: UrlPolicy {
                 blocked_domains: HashSet::new(),
                 tracker_domains: HashSet::new(),
                 check_idn_homographs: true,
-                suspicious_link_action: LinkAction::Remove, // Rimuove i link sospetti del tutto
+                suspicious_link_action: LinkAction::Remove, // completely removes suspicious links
             },
             resources: ResourcePolicy {
-                max_fetch_depth: 0, // Nessun download di risorse esterne
+                max_fetch_depth: 0, // no external resource downloads
                 max_requests_per_job: 0,
                 max_resource_size_bytes: 0,
                 max_decompressed_size_bytes: 0,
@@ -139,7 +139,7 @@ impl Policy {
         }
     }
 
-    /// Profilo rilassato (Relaxed) - per input semi-attendibili (es. dashboard interne)
+    /// Relaxed profile (Relaxed) - for semi-trusted inputs (e.g. internal dashboards)
     pub fn relaxed() -> Self {
         let allowed_tags = HashSet::from([
             "p".to_string(), "a".to_string(), "div".to_string(), "span".to_string(),
@@ -157,15 +157,15 @@ impl Policy {
                 allowed_tags,
                 allowed_attributes,
                 rewrite_active_content: true,
-                block_javascript_uris: true, // Questo va bloccato sempre!
-                block_data_uris: false, // Permette data: URIs (es. per immagini inline)
-                block_meta_refresh: false, // Permette i redirect innocui
+                block_javascript_uris: true, // This should always be blocked!
+                block_data_uris: false, // Allows data: URIs (e.g. for inline images)
+                block_meta_refresh: false, // Allows harmless redirects
                 trusted_iframe_origins: HashSet::from(["https://www.youtube.com".to_string(), "https://vimeo.com".to_string()]),
             },
             urls: UrlPolicy {
                 blocked_domains: HashSet::new(),
                 tracker_domains: HashSet::new(),
-                check_idn_homographs: false, // Più tollerante con i caratteri internazionali
+                check_idn_homographs: false, // More tolerant with international characters
                 suspicious_link_action: LinkAction::Rewrite("https://internal.safelink.proxy?url=".to_string()),
             },
             resources: ResourcePolicy {
@@ -174,7 +174,7 @@ impl Policy {
                 max_resource_size_bytes: 15 * 1024 * 1024, // 15 MB
                 max_decompressed_size_bytes: 50 * 1024 * 1024, // 50 MB
                 timeout_ms: 15000,
-                block_internal_ips: false, // Potrebbe dover fetchare risorse dalla intranet
+                block_internal_ips: false, // Might need to fetch resources from the intranet
                 enforce_mime_sniffing: false,
             }
         }

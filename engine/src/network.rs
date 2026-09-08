@@ -18,7 +18,7 @@ pub fn fetch_resources(
 
     let mut downloaded_files: HashMap<String, Vec<u8>> = HashMap::new();
 
-    // agente http con ureq
+    // http agent with ureq
     let agent = ureq::AgentBuilder::new().timeout(Duration::from_millis(policy.resources.timeout_ms)).build();
     
     for url in urls {
@@ -64,7 +64,7 @@ pub fn fetch_resources(
 
         match response {
             Ok(r) => {
-                // controllo del campo Content-Length nell'header
+                // check Content-Length field in the header
                 if let Some(content_length) = r.header("Content-Length") {
                     if let Ok(parsed_content_length) = content_length.parse::<usize>() {
                         if parsed_content_length > policy.resources.max_resource_size_bytes {
@@ -74,7 +74,7 @@ pub fn fetch_resources(
                 }
                 let mut reader = r.into_reader().take(policy.resources.max_resource_size_bytes as u64);
 
-                // scarico i bytes
+                // download bytes
                 let mut vec_bytes: Vec<u8> = Vec::new();
 
                 let _ = reader.read_to_end(&mut vec_bytes);
@@ -86,7 +86,7 @@ pub fn fetch_resources(
 
                     if real_mime.starts_with("application/x-dosexec") // .exe Windows
                     || real_mime.starts_with("application/x-executable") // Linux/Mac
-                    || real_mime.starts_with("applicatio/x-sh") // script shell
+                    || real_mime.starts_with("applicatio/x-sh") // shell script
                     { 
                         should_block = true;
                     }

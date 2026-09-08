@@ -3,19 +3,19 @@ use serde::{Serialize, Deserialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SanitizationReport {
     
-    // nome del file analizzato
+    // name of the parsed file
     pub file_name: String,
 
-    // tempo impiegato per elaborare il file
+    // time taken to process the file
     pub time_elapsed: u64,
 
-    // se true, il file è stato bloccato del tutto
+    // if true, the file was completely blocked
     pub file_blocked: bool,
 
-    // lista delle azioni
+    // list of actions
     pub actions: Vec<SanitizationAction>,
 
-    // lista delle risorse da scaricare (popolato nel parser, gestito da network)
+    // list of resources to download (populated in the parser, managed by network)
     pub resources_to_fetch: Vec<String>
 }
 
@@ -25,7 +25,7 @@ pub struct SanitizationAction {
 
     pub rule_fired: String,
 
-    // posizione (riga, colonna) all'interno del documento
+    // position (row, column) within the document
     pub location: (usize, usize),
 
     pub original_fragment: String,
