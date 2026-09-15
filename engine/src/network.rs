@@ -139,3 +139,95 @@ pub fn fetch_resources(
 
     Ok(downloaded_files)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+    use std::net::TcpListener;
+    use std::io::Write;
+
+    fn setup_network_policy() -> Policy {
+        let mut policy = Policy::balanced();
+        policy.resources.max_requests_per_job = 10;
+        policy.resources.max_fetch_depth = 1;
+        policy.resources.max_resource_size_bytes = 1024;
+        policy
+    }
+
+    // 1. SSRF Test
+    #[test]
+    fn test_ssrf_prevention_blocks() {
+        let policy = setup_network_policy();
+
+        let malicious_urls = vec![
+            "http://127.0.0.1/admin-panel".to_string(), // Loopback
+            "http://localhost:8080/secret".to_string(), // Localhost string
+            "http://10.0.0.1/db".to_string(),           // Private Class A
+            "http://192.168.1.254/router".to_string(),  // Private Class C
+        ];
+
+        let mut visited = HashSet::new();
+        let results = fetch_resources(&malicious_urls, &policy, 0, &mut visited).unwrap();
+
+        assert!(results.is_empty());
+    }
+
+    // 2. DoS Test
+    #[test]
+    fn test_dos_prevention_content_length() {
+        let mut policy = setup_network_policy();
+        policy.resources.block_internal_ips = false; 
+        policy.resources.max_resource_size_bytes = 50; 
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let malicious_response = b"HTTP/1.1 200 OK\r\nContent-Length: 99999999\r\n\r\nEcco il file";
+                let _ = stream.write_all(malicious_response);
+            }
+        });
+
+        let target_url = format!("http://127.0.0.1:{}/huge_file.zip", port);
+        
+        let mut visited = HashSet::new();
+        let results = fetch_resources(&[target_url], &policy, 0, &mut visited).unwrap();
+
+        assert!(results.is_empty());
+    }
+
+
+    // 3. MIME Sniffing Test
+    #[test]
+    fn test_mime_sniffing_blocks() {
+        let mut policy = setup_network_policy();
+        policy.resources.block_internal_ips = false;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                
+                let mut fake_payload = vec![0x7F, 0x45, 0x4C, 0x46, 0x02, 0x01, 0x01];
+                fake_payload.extend(vec![0; 50]); 
+
+                let headers = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", fake_payload.len());
+                let mut response = headers.into_bytes();
+                response.extend(fake_payload);
+
+                let _ = stream.write_all(&response);
+            }
+        });
+
+        let target_url = format!("http://127.0.0.1:{}/malware", port);
+        
+        let mut visited = HashSet::new();
+        let results = fetch_resources(&[target_url], &policy, 0, &mut visited).unwrap();
+
+        
+        assert!(results.is_empty());
+    }
+}
