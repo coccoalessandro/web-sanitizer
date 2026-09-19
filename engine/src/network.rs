@@ -85,7 +85,7 @@ pub fn fetch_resources(
                         }
                     }   
                 }
-                let mut reader = r.into_reader().take(policy.resources.max_resource_size_bytes as u64);
+                let mut reader = r.into_reader().take(policy.resources.max_decompressed_size_bytes as u64);
 
                 // download bytes
                 let mut vec_bytes: Vec<u8> = Vec::new();
