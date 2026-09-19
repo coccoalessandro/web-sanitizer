@@ -94,14 +94,16 @@ pub fn fetch_resources(
 
                 // MIME confusion
                 let mut should_block = false;
-                if let Some(kind) = infer::get(&vec_bytes) {
-                    let real_mime = kind.mime_type();
+                if policy.resources.enforce_mime_sniffing {
+                    if let Some(kind) = infer::get(&vec_bytes) {
+                        let real_mime = kind.mime_type();
 
-                    if real_mime.starts_with("application/x-dosexec") // .exe Windows
-                    || real_mime.starts_with("application/x-executable") // Linux/Mac
-                    || real_mime.starts_with("applicatio/x-sh") // shell script
-                    { 
-                        should_block = true;
+                        if real_mime.starts_with("application/x-dosexec") // .exe Windows
+                        || real_mime.starts_with("application/x-executable") // Linux/Mac
+                        || real_mime.starts_with("application/x-sh") // shell script
+                        { 
+                            should_block = true;
+                        }
                     }
                 }
 
