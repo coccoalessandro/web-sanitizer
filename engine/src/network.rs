@@ -200,7 +200,6 @@ mod tests {
         assert!(results.is_empty());
     }
 
-
     // 3. MIME Sniffing Test
     #[test]
     fn test_mime_sniffing_blocks() {
@@ -212,7 +211,6 @@ mod tests {
 
         std::thread::spawn(move || {
             if let Ok((mut stream, _)) = listener.accept() {
-                
                 let mut fake_payload = vec![0x7F, 0x45, 0x4C, 0x46, 0x02, 0x01, 0x01];
                 fake_payload.extend(vec![0; 50]); 
 
@@ -229,7 +227,6 @@ mod tests {
         let mut visited = HashSet::new();
         let results = fetch_resources(&[target_url], &policy, 0, &mut visited).unwrap();
 
-        
         assert!(results.is_empty());
     }
 }

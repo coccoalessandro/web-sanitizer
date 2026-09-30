@@ -80,15 +80,22 @@ mod tests {
     }
 
     // 5. IDN Homograph Test
-        #[test]
-        fn test_idn_homograph_blocking() {
-            let policy = Policy::balanced();
-            let html_input = b"<a href=\"https://xn--pple-43d.com\">Finta Apple</a>";
+    #[test]
+    fn test_idn_homograph_blocking() {
+        let policy_strict = Policy::strict();
+        let html_input = b"<a href=\"https://xn--pple-43d.com\">Finta Apple</a>";
 
-            let (output_bytes, _) = sanitize_html(html_input, &policy).unwrap();
-            let output_string = String::from_utf8(output_bytes).unwrap();
+        let (output_bytes, _) = sanitize_html(html_input, &policy_strict).unwrap();
+        let output_string = String::from_utf8(output_bytes).unwrap();
 
-            assert!(output_string.contains("<a>Finta Apple</a>"));
-            assert!(!output_string.contains("xn--"))
-        }
+        assert!(output_string.contains("<a>Finta Apple</a>"));
+        assert!(!output_string.contains("xn--"));
+
+        // Balanced profile replaces with warning
+        let policy_balanced = Policy::balanced();
+        let (output_bytes_b, _) = sanitize_html(html_input, &policy_balanced).unwrap();
+        let output_string_b = String::from_utf8(output_bytes_b).unwrap();
+        assert!(output_string_b.contains("[REMOVED SUSPICIOUS LINK]"));
+        assert!(!output_string_b.contains("xn--"));
+    }
 }
