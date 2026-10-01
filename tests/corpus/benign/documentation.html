@@ -1,0 +1,20 @@
+<div class="docs-container" style="max-width: 900px; margin: 0 auto; line-height: 1.6;">
+    <h1>Pipeline Configuration Manual</h1>
+    <p>This document details the configuration parameters available for the batch processing engine.</p>
+    
+    <h2>Worker Thread Scheduling</h2>
+    <p>Worker threads poll incoming jobs concurrently from a shared channel. Each worker maintains an independent parsing context to maximize L1/L2 cache locality.</p>
+
+    <div>
+        <p><b>Recommended settings:</b></p>
+        <p>For I/O bound workloads: <i>2x available physical CPU cores</i>.</p>
+        <p>For compute-heavy parsing: <i>1x physical CPU cores</i>.</p>
+    </div>
+
+    <h2>Memory Safety Guarantees</h2>
+    <p>All input streams are bounded using streaming capacity limits to prevent heap exhaustion. Refer to <a href="https://github.com/hyperium/hyper" title="Hyper HTTP Engine">Hyper Project</a> for foundational networking concepts.</p>
+    
+    <div style="background-color: #f8f9fa; padding: 12px; border-left: 4px solid #007bff;">
+        <p><b>Notice:</b> Always configure network timeouts appropriately when dispatching remote jobs.</p>
+    </div>
+</div>

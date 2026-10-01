@@ -1,0 +1,18 @@
+<div>
+    <h1>Adversarial & Malformed HTML Stress Test</h1>
+    
+    <!-- Malformed script tag with dangling attribute -->
+    <script src="http://attacker.com/steal.js"></script>
+    <b class="unclosed">Broken formatting</b>
+    
+    <!-- Null byte injection in attribute values -->
+    <a href="jav&#x00;ascript:alert('Null Byte Injection')">Click with Null Byte</a>
+    
+    <!-- Nested elements with inline event handlers -->
+    <div><p><div><span><div onclick="alert('Deeply Nested Onclick')">
+        <a href="https://example.com" onmouseover="alert('Dangling Mouseover')">Dangling anchor</a>
+    </div></span></div></p></div>
+    
+    <!-- Obsolete active tags with event handlers -->
+    <marquee onstart="alert('Marquee Event')">Obsolete Active Tags</marquee>
+</div>

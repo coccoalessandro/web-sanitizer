@@ -1,0 +1,197 @@
+{
+  "version": "1.0",
+  "description": "Ground truth specification for Web Sanitizer evaluation corpus",
+  "samples": [
+    {
+      "file": "benign/article.html",
+      "category": "benign",
+      "threat_type": "none",
+      "expected_blocked": false,
+      "expected_actions_max": 0,
+      "description": "Standard article with headings, paragraphs, safe links, and clean image"
+    },
+    {
+      "file": "benign/clean_document.pdf",
+      "category": "benign",
+      "threat_type": "none",
+      "expected_blocked": false,
+      "expected_actions_max": 0,
+      "description": "Clean PDF document without JavaScript, launch, or open actions"
+    },
+    {
+      "file": "benign/clean_vector.svg",
+      "category": "benign",
+      "threat_type": "none",
+      "expected_blocked": false,
+      "expected_actions_max": 0,
+      "description": "Valid SVG vector badge with paths and text, no scripts or XML entities"
+    },
+    {
+      "file": "benign/documentation.html",
+      "category": "benign",
+      "threat_type": "none",
+      "expected_blocked": false,
+      "expected_actions_max": 0,
+      "description": "Technical documentation page using clean divs, paragraphs, and safe external links"
+    },
+    {
+      "file": "benign/product_card.html",
+      "category": "benign",
+      "threat_type": "none",
+      "expected_blocked": false,
+      "expected_actions_max": 0,
+      "description": "E-commerce product card with spans, badges, inline styling, and clean anchors"
+    },
+    {
+      "file": "benign/styled_page.html",
+      "category": "benign",
+      "threat_type": "none",
+      "expected_blocked": false,
+      "expected_actions_max": 0,
+      "description": "Page with safe CSS rules in style tag and inline style attributes"
+    },
+    {
+      "file": "benign/valid_icon.png",
+      "category": "benign",
+      "threat_type": "none",
+      "expected_blocked": false,
+      "expected_actions_max": 0,
+      "description": "Standard 32x32 PNG icon within allowed image pixel limits"
+    },
+    {
+      "file": "malicious/active_containers.html",
+      "category": "malicious",
+      "threat_type": "active_container",
+      "expected_blocked": false,
+      "min_expected_actions": 3,
+      "expected_rule_patterns": ["Untrusted active content", "Tag not allowed"],
+      "description": "Untrusted iframe, object, and embed elements targeting external domains"
+    },
+    {
+      "file": "malicious/active_script.pdf",
+      "category": "malicious",
+      "threat_type": "active_document_pdf",
+      "expected_blocked": true,
+      "min_expected_actions": 1,
+      "expected_rule_patterns": ["Active document content detected"],
+      "description": "PDF file containing dynamic /JavaScript and /OpenAction triggers"
+    },
+    {
+      "file": "malicious/active_script.svg",
+      "category": "malicious",
+      "threat_type": "active_document_svg",
+      "expected_blocked": false,
+      "min_expected_actions": 3,
+      "expected_rule_patterns": ["Active SVG vector blocked"],
+      "description": "SVG containing embedded script elements, onload handlers, and xlink:href javascript links"
+    },
+    {
+      "file": "malicious/dos_pixel_flood.gif",
+      "category": "malicious",
+      "threat_type": "dos_image_bomb",
+      "expected_blocked": true,
+      "min_expected_actions": 1,
+      "expected_rule_patterns": ["Image decompression bomb detected"],
+      "description": "GIF with 60000x60000 dimensions (3.6B pixels) exceeding max_image_pixels"
+    },
+    {
+      "file": "malicious/dos_pixel_flood.png",
+      "category": "malicious",
+      "threat_type": "dos_image_bomb",
+      "expected_blocked": true,
+      "min_expected_actions": 1,
+      "expected_rule_patterns": ["Image decompression bomb detected"],
+      "description": "PNG with 65536x65536 dimensions (4.29B pixels) exceeding max_image_pixels"
+    },
+    {
+      "file": "malicious/dos_xml_entity_bomb.svg",
+      "category": "malicious",
+      "threat_type": "dos_xml_bomb",
+      "expected_blocked": true,
+      "min_expected_actions": 1,
+      "expected_rule_patterns": ["XML Entity Bomb"],
+      "description": "Billion Laughs recursive XML entity expansion attack in SVG"
+    },
+    {
+      "file": "malicious/malformed_html.html",
+      "category": "malicious",
+      "threat_type": "adversarial_html",
+      "expected_blocked": false,
+      "min_expected_actions": 2,
+      "expected_rule_patterns": ["Tag not allowed", "Inline event handler"],
+      "description": "Adversarial unclosed tags, null bytes, and deprecated active elements (marquee)"
+    },
+    {
+      "file": "malicious/meta_refresh_redirect.html",
+      "category": "malicious",
+      "threat_type": "client_redirect",
+      "expected_blocked": false,
+      "min_expected_actions": 1,
+      "expected_rule_patterns": ["Meta refresh block"],
+      "description": "Automatic client-side redirect via meta http-equiv=refresh"
+    },
+    {
+      "file": "malicious/spoofing_blocked_domains.html",
+      "category": "malicious",
+      "threat_type": "domain_blocklist",
+      "expected_blocked": false,
+      "min_expected_actions": 3,
+      "expected_rule_patterns": ["Suspicious URL mitigated"],
+      "description": "Links and image references to known malware and tracking beacon domains"
+    },
+    {
+      "file": "malicious/spoofing_host_split.html",
+      "category": "malicious",
+      "threat_type": "unicode_host_split",
+      "expected_blocked": false,
+      "min_expected_actions": 4,
+      "expected_rule_patterns": ["Host-Split detected"],
+      "description": "Unicode normalization confusion chars (fullwidth slash, colon, commercial at, ideographic period)"
+    },
+    {
+      "file": "malicious/spoofing_idn_homograph.html",
+      "category": "malicious",
+      "threat_type": "idn_homograph",
+      "expected_blocked": false,
+      "min_expected_actions": 3,
+      "expected_rule_patterns": ["Punycode domain"],
+      "description": "Punycode (xn--) internationalized domain name homograph phishing attacks"
+    },
+    {
+      "file": "malicious/xss_css_injection.html",
+      "category": "malicious",
+      "threat_type": "css_injection",
+      "expected_blocked": false,
+      "min_expected_actions": 5,
+      "expected_rule_patterns": ["CSS expression blocked", "-moz-binding", "behavior", "dangerous url()", "@import"],
+      "description": "Dynamic CSS expressions, comment obfuscation, hex escapes, XBL binding, HTC behavior"
+    },
+    {
+      "file": "malicious/xss_event_handlers.html",
+      "category": "malicious",
+      "threat_type": "xss_event_handlers",
+      "expected_blocked": false,
+      "min_expected_actions": 5,
+      "expected_rule_patterns": ["Inline event handler stripped"],
+      "description": "Multiple inline event handlers: onclick, onmouseover, onfocus, onerror, mixed-case oNlOaD"
+    },
+    {
+      "file": "malicious/xss_pseudo_protocols.html",
+      "category": "malicious",
+      "threat_type": "xss_pseudo_protocols",
+      "expected_blocked": false,
+      "min_expected_actions": 4,
+      "expected_rule_patterns": ["Malicious URI scheme blocked", "data: URI scheme disallowed"],
+      "description": "Dangerous URI pseudo-protocols: javascript:, vbscript:, whitespace evasion, data:text/html"
+    },
+    {
+      "file": "malicious/xss_script_tags.html",
+      "category": "malicious",
+      "threat_type": "xss_script_injection",
+      "expected_blocked": false,
+      "min_expected_actions": 3,
+      "expected_rule_patterns": ["Tag not allowed"],
+      "description": "Unapproved inline and remote script tags, uppercase variations"
+    }
+  ]
+}

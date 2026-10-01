@@ -1,0 +1,15 @@
+<div>
+    <h1>Untrusted Active Containers</h1>
+    <p>Testing sandboxing or removal of active embedded containers pointing to untrusted external origins.</p>
+
+    <!-- Untrusted iframe without sandbox attribute -->
+    <iframe src="https://phishing-portal.org/login_box.html" width="500" height="300"></iframe>
+
+    <!-- Untrusted object container -->
+    <object data="https://exploit-host.net/malicious_payload.swf" type="application/x-shockwave-flash">
+        <param name="allowScriptAccess" value="always" />
+    </object>
+
+    <!-- Untrusted embed element -->
+    <embed src="https://exploit-host.net/stealer.swf" width="200" height="200" />
+</div>
