@@ -10,6 +10,7 @@ use engine::pipeline::{run_pipeline, Job};
 use engine::policy::Policy;
 use std::fs;
 use std::path::PathBuf;
+use std::process::exit;
 
 /// Predefined security profiles for the sanitization engine.
 #[derive(ValueEnum, Clone, Debug)]
@@ -28,11 +29,31 @@ enum Profile {
 struct Args {
     /// Input files to sanitize
     #[arg(short, long)]
-    files: Vec<PathBuf>,
+    files: Option<Vec<PathBuf>>,
 
     /// Input URLs to sanitize
     #[arg(short, long)]
-    urls: Vec<String>,
+    urls: Option<Vec<String>>,
+
+    /// Input directory to walk recursively and sanitize all .html/.htm files
+    #[arg(long)]
+    dir: Option<PathBuf>,
+
+    /// Output directory to save cleaned files and their .json audit reports
+    #[arg(short, long)]
+    output_dir: Option<PathBuf>,
+
+    /// Quiet mode (suppress non-error output)
+    #[arg(short, long, default_value_t = false)]
+    quiet: bool,
+
+    /// Verbose mode
+    #[arg(short, long, default_value_t = false)]
+    verbose: bool,
+
+    /// JSON-only mode (prints only the JSON report to stdout)
+    #[arg(long, default_value_t = false)]
+    json_only: bool,
 
     /// Predefined security profile to use (overrides config file if provided)
     #[arg(short, long)]
@@ -95,44 +116,88 @@ struct Args {
     enforce_mime_sniffing: Option<bool>,
 }
 
+fn walk_dir(dir: &std::path::Path, jobs: &mut Vec<Job>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk_dir(&path, jobs);
+            } else if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    let ext_str = ext.to_string_lossy().to_lowercase();
+                    if ext_str == "html" || ext_str == "htm" {
+                        jobs.push(Job::LocalFile(path));
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn main() {
     let args = Args::parse();
 
     let mut jobs = Vec::new();
 
-    for file in args.files {
-        jobs.push(Job::LocalFile(file));
+    for file in args.files.unwrap_or_default() {
+        if file.as_os_str() != "" {
+            jobs.push(Job::LocalFile(file));
+        }
     }
 
-    for url in args.urls {
-        jobs.push(Job::RemoteUrl(url));
+    for url in args.urls.unwrap_or_default() {
+        if url != "" {
+            jobs.push(Job::RemoteUrl(url));
+        }
+    }
+
+    if let Some(ref dir) = args.dir {
+        walk_dir(dir, &mut jobs);
     }
 
     if jobs.is_empty() {
-        println!("No inputs provided. Use --help for usage.");
+        if !args.quiet && !args.json_only {
+            println!("No inputs provided. Use --help for usage.");
+        }
         return;
     }
 
+    if let Some(ref out_dir) = args.output_dir {
+        if !out_dir.exists() {
+            fs::create_dir_all(out_dir).expect("Failed to create output directory");
+        }
+    }
+
     let mut policy = if let Some(ref config_path) = args.config {
-        println!("Loading policy from {:?}", config_path);
+        if args.verbose && !args.quiet && !args.json_only {
+            println!("Loading policy from {:?}", config_path);
+        }
         let content = fs::read_to_string(config_path).expect("Failed to read config file");
         serde_json::from_str(&content).expect("Failed to parse config file")
     } else {
         match args.profile {
             Some(Profile::Strict) => {
-                println!("Using 'Strict' security profile.");
+                if args.verbose && !args.quiet && !args.json_only {
+                    println!("Using 'Strict' security profile.");
+                }
                 Policy::strict()
             }
             Some(Profile::Relaxed) => {
-                println!("Using 'Relaxed' security profile.");
+                if args.verbose && !args.quiet && !args.json_only {
+                    println!("Using 'Relaxed' security profile.");
+                }
                 Policy::relaxed()
             }
             Some(Profile::Balanced) => {
-                println!("Using 'Balanced' security profile.");
+                if args.verbose && !args.quiet && !args.json_only {
+                    println!("Using 'Balanced' security profile.");
+                }
                 Policy::balanced()
             }
             None => {
-                println!("No profile specified. Using default 'Balanced' configuration.");
+                if args.verbose && !args.quiet && !args.json_only {
+                    println!("No profile specified. Using default 'Balanced' configuration.");
+                }
                 Policy::default()
             }
         }
@@ -178,25 +243,62 @@ fn main() {
         policy.resources.enforce_mime_sniffing = val;
     }
 
-    println!("Starting web-sanitizer with {} jobs...", jobs.len());
+    if !args.quiet && !args.json_only {
+        println!("Starting web-sanitizer with {} jobs...", jobs.len());
+    }
 
     let results = run_pipeline(jobs, policy);
 
+    let mut has_threats = false;
+
     for result in results {
-        println!("--------------------------------------------------");
-        println!("Source: {}", result.source.name());
+        if !args.quiet && !args.json_only {
+            println!("--------------------------------------------------");
+            println!("Source: {}", result.source.name());
+        }
 
         match result.output {
             Ok((content, report)) => {
-                println!("Sanitization Successful.");
-                println!("Content Size: {} bytes", content.len());
-                if let Ok(json) = serde_json::to_string_pretty(&report) {
-                    println!("Report:\n{}", json);
+                if !report.actions.is_empty() {
+                    has_threats = true;
+                }
+
+                if let Some(ref out_dir) = args.output_dir {
+                    let safe_name = result.source.name().replace(|c: char| !c.is_alphanumeric(), "_");
+                    let html_path = out_dir.join(format!("{}.html", safe_name));
+                    let json_path = out_dir.join(format!("{}.json", safe_name));
+
+                    fs::write(&html_path, &content).expect("Failed to write HTML output");
+                    let json_str = serde_json::to_string_pretty(&report).unwrap_or_default();
+                    fs::write(&json_path, json_str).expect("Failed to write JSON report output");
+                    
+                    if !args.quiet && !args.json_only {
+                        println!("Saved to {:?} and {:?}", html_path, json_path);
+                    }
+                }
+
+                if args.json_only {
+                    if let Ok(json) = serde_json::to_string(&report) {
+                        println!("{}", json);
+                    }
+                } else if !args.quiet {
+                    println!("Sanitization Successful.");
+                    println!("Content Size: {} bytes", content.len());
+                    if let Ok(json) = serde_json::to_string_pretty(&report) {
+                        println!("Report:\n{}", json);
+                    }
                 }
             }
             Err(e) => {
-                eprintln!("Error processing job: {}", e);
+                has_threats = true;
+                if !args.quiet {
+                    eprintln!("Error processing job: {}", e);
+                }
             }
         }
+    }
+
+    if has_threats {
+        exit(1);
     }
 }
