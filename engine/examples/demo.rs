@@ -2,8 +2,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use engine::policy::Policy;
 use engine::parser::sanitize_html;
+use engine::policy::Policy;
 
 fn main() {
     let mut allowed_tags: HashSet<String> = HashSet::new();
@@ -16,10 +16,9 @@ fn main() {
 
     a_attrs.insert("href".to_string());
     allowed_attributes.insert("a".to_string(), a_attrs);
-    
+
     let mut blocked_domains: HashSet<String> = HashSet::new();
     blocked_domains.insert("malware.com".to_string());
-
 
     let mut policy = Policy::default();
     policy.html.allowed_tags = allowed_tags;
@@ -58,7 +57,7 @@ fn main() {
 
             println!("SANITIZATION REPORT");
             println!("{:?}", report);
-        },
+        }
         Err(e) => {
             println!("The parser returned an error: {}", e);
         }
