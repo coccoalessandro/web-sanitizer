@@ -1,7 +1,15 @@
 //! Security policies and configuration profiles for the sanitization engine.
 
-use serde::{Serialize, Deserialize};
-use std::collections::{HashSet, HashMap};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_max_image_pixels() -> usize {
+    50_000_000 // 50 Megapixels
+}
 
 /// Top-level configuration aggregating all security policy rules.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -42,6 +50,12 @@ pub struct HtmlPolicy {
     pub block_meta_refresh: bool,
     /// Whitelist of trusted origins allowed inside `<iframe>` and `<object>` elements.
     pub trusted_iframe_origins: HashSet<String>,
+    /// Sanitize inline `style="..."` attributes (stripping `expression`, dangerous `url()`, etc.)
+    #[serde(default = "default_true")]
+    pub sanitize_inline_styles: bool,
+    /// Sanitize `<style>` tag contents
+    #[serde(default = "default_true")]
+    pub sanitize_style_tags: bool,
 }
 
 /// Policy governing link inspection, domain block-lists, and anti-spoofing checks.
@@ -53,6 +67,9 @@ pub struct UrlPolicy {
     pub tracker_domains: HashSet<String>,
     /// Enable detection of IDN homograph attacks (e.g., `xn--` punycode spoofing).
     pub check_idn_homographs: bool,
+    /// Detect Unicode normalization Host-Split characters (e.g. fullwidth slash, commercial at, etc.)
+    #[serde(default = "default_true")]
+    pub check_unicode_host_split: bool,
     /// Action executed when a suspicious or blocked link is encountered.
     pub suspicious_link_action: LinkAction,
 }
@@ -68,6 +85,15 @@ pub struct ResourcePolicy {
     pub max_resource_size_bytes: usize,
     /// Maximum decompressed payload size permitted (compression/XML bomb defense).
     pub max_decompressed_size_bytes: usize,
+    /// Maximum pixel count for images before rejecting as decompression pixel bombs.
+    #[serde(default = "default_max_image_pixels")]
+    pub max_image_pixels: usize,
+    /// Block documents with active content (e.g. JavaScript in PDF/SVG).
+    #[serde(default = "default_true")]
+    pub block_active_documents: bool,
+    /// Resolve domain names to verify they do not point to internal/private IPs.
+    #[serde(default = "default_true")]
+    pub resolve_dns_for_ssrf: bool,
     /// Network request timeout in milliseconds.
     pub timeout_ms: u64,
     /// Block requests targeting private, link-local, or loopback IPs (SSRF prevention).
@@ -78,18 +104,62 @@ pub struct ResourcePolicy {
 
 impl Policy {
     /// Creates a balanced default profile suitable for general-purpose web content.
-    ///
-    /// Permits common formatting tags and links, blocks active scripts/redirects,
-    /// checks IDN homographs, and enforces moderate resource download limits.
     pub fn balanced() -> Self {
         let allowed_tags = HashSet::from([
-            "p".to_string(), "a".to_string(), "div".to_string(), "span".to_string(),
-            "h1".to_string(), "h2".to_string(), "b".to_string(), "i".to_string(),
+            "p".to_string(),
+            "a".to_string(),
+            "div".to_string(),
+            "span".to_string(),
+            "h1".to_string(),
+            "h2".to_string(),
+            "h3".to_string(),
+            "b".to_string(),
+            "i".to_string(),
+            "em".to_string(),
+            "strong".to_string(),
+            "code".to_string(),
+            "pre".to_string(),
+            "blockquote".to_string(),
+            "ul".to_string(),
+            "ol".to_string(),
+            "li".to_string(),
+            "img".to_string(),
+            "style".to_string(),
         ]);
 
         let mut allowed_attributes = HashMap::new();
-        allowed_attributes.insert("a".to_string(), HashSet::from(["href".to_string(), "title".to_string()]));
-        allowed_attributes.insert("img".to_string(), HashSet::from(["src".to_string(), "alt".to_string()]));
+        allowed_attributes.insert(
+            "a".to_string(),
+            HashSet::from(["href".to_string(), "title".to_string()]),
+        );
+        allowed_attributes.insert(
+            "img".to_string(),
+            HashSet::from(["src".to_string(), "alt".to_string()]),
+        );
+        allowed_attributes.insert(
+            "div".to_string(),
+            HashSet::from(["class".to_string(), "style".to_string()]),
+        );
+        allowed_attributes.insert(
+            "span".to_string(),
+            HashSet::from(["class".to_string(), "style".to_string()]),
+        );
+        allowed_attributes.insert(
+            "p".to_string(),
+            HashSet::from(["class".to_string(), "style".to_string()]),
+        );
+        allowed_attributes.insert(
+            "h1".to_string(),
+            HashSet::from(["class".to_string(), "style".to_string()]),
+        );
+        allowed_attributes.insert(
+            "h2".to_string(),
+            HashSet::from(["class".to_string(), "style".to_string()]),
+        );
+        allowed_attributes.insert(
+            "h3".to_string(),
+            HashSet::from(["class".to_string(), "style".to_string()]),
+        );
 
         Self {
             html: HtmlPolicy {
@@ -100,32 +170,48 @@ impl Policy {
                 block_data_uris: true,
                 block_meta_refresh: true,
                 trusted_iframe_origins: HashSet::new(),
+                sanitize_inline_styles: true,
+                sanitize_style_tags: true,
             },
             urls: UrlPolicy {
-                blocked_domains: HashSet::new(),
-                tracker_domains: HashSet::new(),
+                blocked_domains: HashSet::from([
+                    "malware.com".to_string(),
+                    "malware-test.com".to_string(),
+                ]),
+                tracker_domains: HashSet::from([
+                    "tracking-beacon.com".to_string(),
+                    "tracker.com".to_string(),
+                ]),
                 check_idn_homographs: true,
-                suspicious_link_action: LinkAction::ReplaceWithWarning("[REMOVED SUSPICIOUS LINK]".to_string()),
+                check_unicode_host_split: true,
+                suspicious_link_action: LinkAction::ReplaceWithWarning(
+                    "[REMOVED SUSPICIOUS LINK]".to_string(),
+                ),
             },
             resources: ResourcePolicy {
                 max_fetch_depth: 3,
                 max_requests_per_job: 50,
                 max_resource_size_bytes: 2 * 1024 * 1024,
                 max_decompressed_size_bytes: 10 * 1024 * 1024,
+                max_image_pixels: 50_000_000,
+                block_active_documents: true,
+                resolve_dns_for_ssrf: true,
                 timeout_ms: 5000,
                 block_internal_ips: true,
                 enforce_mime_sniffing: true,
-            }
+            },
         }
     }
 
     /// Creates a strict profile for highly untrusted inputs (e.g., user comments, emails).
-    ///
-    /// Restricts HTML to minimal formatting tags, disables external resource fetching entirely,
-    /// and drops any suspicious links outright.
     pub fn strict() -> Self {
         let allowed_tags = HashSet::from([
-            "p".to_string(), "a".to_string(), "b".to_string(), "i".to_string(), "em".to_string(), "strong".to_string()
+            "p".to_string(),
+            "a".to_string(),
+            "b".to_string(),
+            "i".to_string(),
+            "em".to_string(),
+            "strong".to_string(),
         ]);
 
         let mut allowed_attributes = HashMap::new();
@@ -140,11 +226,20 @@ impl Policy {
                 block_data_uris: true,
                 block_meta_refresh: true,
                 trusted_iframe_origins: HashSet::new(), // no iframes
+                sanitize_inline_styles: true,
+                sanitize_style_tags: true,
             },
             urls: UrlPolicy {
-                blocked_domains: HashSet::new(),
-                tracker_domains: HashSet::new(),
+                blocked_domains: HashSet::from([
+                    "malware.com".to_string(),
+                    "malware-test.com".to_string(),
+                ]),
+                tracker_domains: HashSet::from([
+                    "tracking-beacon.com".to_string(),
+                    "tracker.com".to_string(),
+                ]),
                 check_idn_homographs: true,
+                check_unicode_host_split: true,
                 suspicious_link_action: LinkAction::Remove, // completely removes suspicious links
             },
             resources: ResourcePolicy {
@@ -152,54 +247,107 @@ impl Policy {
                 max_requests_per_job: 0,
                 max_resource_size_bytes: 0,
                 max_decompressed_size_bytes: 0,
+                max_image_pixels: 10_000_000,
+                block_active_documents: true,
+                resolve_dns_for_ssrf: true,
                 timeout_ms: 2000,
                 block_internal_ips: true,
                 enforce_mime_sniffing: true,
-            }
+            },
         }
     }
 
     /// Creates a relaxed profile for semi-trusted inputs (e.g., internal CMS/dashboards).
-    ///
-    /// Allows rich layout tags (tables, iframes, images), higher resource budgets,
-    /// and proxy rewriting for suspicious links.
     pub fn relaxed() -> Self {
         let allowed_tags = HashSet::from([
-            "p".to_string(), "a".to_string(), "div".to_string(), "span".to_string(),
-            "h1".to_string(), "h2".to_string(), "b".to_string(), "i".to_string(),
-            "img".to_string(), "table".to_string(), "tr".to_string(), "td".to_string(), "iframe".to_string()
+            "p".to_string(),
+            "a".to_string(),
+            "div".to_string(),
+            "span".to_string(),
+            "h1".to_string(),
+            "h2".to_string(),
+            "b".to_string(),
+            "i".to_string(),
+            "img".to_string(),
+            "table".to_string(),
+            "tr".to_string(),
+            "td".to_string(),
+            "iframe".to_string(),
+            "style".to_string(),
         ]);
 
         let mut allowed_attributes = HashMap::new();
-        allowed_attributes.insert("a".to_string(), HashSet::from(["href".to_string(), "title".to_string(), "target".to_string()]));
-        allowed_attributes.insert("img".to_string(), HashSet::from(["src".to_string(), "alt".to_string(), "width".to_string(), "height".to_string()]));
-        allowed_attributes.insert("iframe".to_string(), HashSet::from(["src".to_string(), "width".to_string(), "height".to_string(), "allowfullscreen".to_string()]));
+        allowed_attributes.insert(
+            "a".to_string(),
+            HashSet::from([
+                "href".to_string(),
+                "title".to_string(),
+                "target".to_string(),
+            ]),
+        );
+        allowed_attributes.insert(
+            "img".to_string(),
+            HashSet::from([
+                "src".to_string(),
+                "alt".to_string(),
+                "width".to_string(),
+                "height".to_string(),
+            ]),
+        );
+        allowed_attributes.insert(
+            "iframe".to_string(),
+            HashSet::from([
+                "src".to_string(),
+                "width".to_string(),
+                "height".to_string(),
+                "allowfullscreen".to_string(),
+            ]),
+        );
+        allowed_attributes.insert(
+            "div".to_string(),
+            HashSet::from(["class".to_string(), "style".to_string()]),
+        );
+        allowed_attributes.insert(
+            "span".to_string(),
+            HashSet::from(["class".to_string(), "style".to_string()]),
+        );
 
         Self {
             html: HtmlPolicy {
                 allowed_tags,
                 allowed_attributes,
                 rewrite_active_content: true,
-                block_javascript_uris: true, // This should always be blocked!
+                block_javascript_uris: true,
                 block_data_uris: false, // Allows data: URIs (e.g. for inline images)
                 block_meta_refresh: false, // Allows harmless redirects
-                trusted_iframe_origins: HashSet::from(["https://www.youtube.com".to_string(), "https://vimeo.com".to_string()]),
+                trusted_iframe_origins: HashSet::from([
+                    "https://www.youtube.com".to_string(),
+                    "https://vimeo.com".to_string(),
+                ]),
+                sanitize_inline_styles: true,
+                sanitize_style_tags: true,
             },
             urls: UrlPolicy {
                 blocked_domains: HashSet::new(),
                 tracker_domains: HashSet::new(),
-                check_idn_homographs: false, // More tolerant with international characters
-                suspicious_link_action: LinkAction::Rewrite("https://internal.safelink.proxy?url=".to_string()),
+                check_idn_homographs: false,
+                check_unicode_host_split: true,
+                suspicious_link_action: LinkAction::Rewrite(
+                    "https://internal.safelink.proxy?url=".to_string(),
+                ),
             },
             resources: ResourcePolicy {
                 max_fetch_depth: 10,
                 max_requests_per_job: 200,
-                max_resource_size_bytes: 15 * 1024 * 1024, // 15 MB
-                max_decompressed_size_bytes: 50 * 1024 * 1024, // 50 MB
+                max_resource_size_bytes: 15 * 1024 * 1024,
+                max_decompressed_size_bytes: 50 * 1024 * 1024,
+                max_image_pixels: 100_000_000,
+                block_active_documents: false,
+                resolve_dns_for_ssrf: false, // Intranet fetching allowed in relaxed
                 timeout_ms: 15000,
-                block_internal_ips: false, // Might need to fetch resources from the intranet
+                block_internal_ips: false,
                 enforce_mime_sniffing: false,
-            }
+            },
         }
     }
 }

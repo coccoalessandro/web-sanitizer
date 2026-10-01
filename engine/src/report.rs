@@ -1,6 +1,6 @@
 //! Structured telemetry and auditing reports for sanitization runs.
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Comprehensive audit report generated for a single processed input.
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -11,11 +11,14 @@
 //! - [`pipeline`]: Concurrent worker pool processing local files and remote URLs.
 //! - [`report`]: Structured, machine-readable audit reports of all sanitization actions.
 
+pub mod active_content;
+pub mod css;
+pub mod network;
+pub mod parser;
+pub mod pipeline;
 pub mod policy;
 pub mod report;
-pub mod parser;
-pub mod network;
-pub mod pipeline;
+pub mod url_sanitizer;
 
 #[cfg(test)]
 mod tests {
@@ -35,7 +38,12 @@ mod tests {
         assert!(output_string.contains("<div>Testo sicuro</div>"));
         assert!(!output_string.contains("<script>"));
 
-        assert!(report.actions.iter().any(|a| a.original_fragment == "script"))
+        assert!(
+            report
+                .actions
+                .iter()
+                .any(|a| a.original_fragment == "script")
+        )
     }
 
     // 2. Advanced XSS Test
@@ -55,7 +63,8 @@ mod tests {
     #[test]
     fn test_block_meta_refresh() {
         let policy = Policy::balanced();
-        let html_input = b"<head><meta http-equiv=\"refresh\" content=\"0; url=http://evil.com\"></head>";
+        let html_input =
+            b"<head><meta http-equiv=\"refresh\" content=\"0; url=http://evil.com\"></head>";
 
         let (output_bytes, _) = sanitize_html(html_input, &policy).unwrap();
         let output_string = String::from_utf8(output_bytes).unwrap();
@@ -69,7 +78,10 @@ mod tests {
         let mut policy = Policy::balanced();
 
         policy.html.allowed_tags.insert("iframe".to_string());
-        policy.html.allowed_attributes.insert("iframe".to_string(), std::collections::HashSet::from(["src".to_string(), "sandbox".to_string()]));
+        policy.html.allowed_attributes.insert(
+            "iframe".to_string(),
+            std::collections::HashSet::from(["src".to_string(), "sandbox".to_string()]),
+        );
 
         let html_input = b"<iframe src=\"https://youtube.com\"></iframe>";
 
@@ -97,5 +109,99 @@ mod tests {
         let output_string_b = String::from_utf8(output_bytes_b).unwrap();
         assert!(output_string_b.contains("[REMOVED SUSPICIOUS LINK]"));
         assert!(!output_string_b.contains("xn--"));
+    }
+
+    // 6. Inline Event Handlers Test
+    #[test]
+    fn test_inline_event_handler_stripping() {
+        let policy = Policy::balanced();
+        let html_input = b"<div onclick=\"alert('pwned')\" onmouseover=\"bad()\">Safe Text</div>";
+
+        let (output_bytes, report) = sanitize_html(html_input, &policy).unwrap();
+        let output_string = String::from_utf8(output_bytes).unwrap();
+
+        assert!(!output_string.contains("onclick"));
+        assert!(!output_string.contains("onmouseover"));
+        assert!(output_string.contains("Safe Text"));
+        assert!(
+            report
+                .actions
+                .iter()
+                .any(|a| a.rule_fired.contains("Inline event handler"))
+        );
+    }
+
+    // 7. Inline Style CSS Sanitization Test
+    #[test]
+    fn test_inline_style_css_sanitization() {
+        let policy = Policy::balanced();
+        let html_input = b"<div style=\"color: blue; width: expression(alert(1)); background: url(javascript:evil())\">Styled Text</div>";
+
+        let (output_bytes, report) = sanitize_html(html_input, &policy).unwrap();
+        let output_string = String::from_utf8(output_bytes).unwrap();
+
+        assert!(output_string.contains("color: blue"));
+        assert!(!output_string.contains("expression"));
+        assert!(!output_string.contains("javascript:"));
+        assert!(report.actions.iter().any(|a| a.rule_fired.contains("CSS")));
+    }
+
+    // 8. Style Tag Content Sanitization Test
+    #[test]
+    fn test_style_tag_css_sanitization() {
+        let policy = Policy::balanced();
+        let html_input =
+            b"<style>body { -moz-binding: url('xbl'); color: red; }</style><p>Text</p>";
+
+        let (output_bytes, report) = sanitize_html(html_input, &policy).unwrap();
+        let output_string = String::from_utf8(output_bytes).unwrap();
+
+        assert!(!output_string.contains("-moz-binding"));
+        assert!(output_string.contains("color: red"));
+        assert!(
+            report
+                .actions
+                .iter()
+                .any(|a| a.rule_fired.contains("-moz-binding"))
+        );
+    }
+
+    // 9. Host-Split Unicode Normalization Confusion Test
+    #[test]
+    fn test_host_split_unicode_mitigation() {
+        let policy = Policy::balanced();
+        let html_input =
+            "<a href=\"https://legit.com\u{FF0F}evil.com\">Deceptive Link</a>".as_bytes();
+
+        let (output_bytes, report) = sanitize_html(html_input, &policy).unwrap();
+        let output_string = String::from_utf8(output_bytes).unwrap();
+
+        assert!(!output_string.contains("\u{FF0F}"));
+        assert!(output_string.contains("[REMOVED SUSPICIOUS LINK]"));
+        assert!(
+            report
+                .actions
+                .iter()
+                .any(|a| a.rule_fired.contains("Host-Split"))
+        );
+    }
+
+    // 10. Data URI Disallowed Test
+    #[test]
+    fn test_disallow_data_uri() {
+        let policy = Policy::balanced();
+        let html_input =
+            b"<a href=\"data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==\">Data link</a>";
+
+        let (output_bytes, report) = sanitize_html(html_input, &policy).unwrap();
+        let output_string = String::from_utf8(output_bytes).unwrap();
+
+        assert!(!output_string.contains("data:text/html"));
+        assert!(
+            report
+                .actions
+                .iter()
+                .any(|a| a.rule_fired.contains("data: URI"))
+        );
     }
 }
