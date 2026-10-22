@@ -372,14 +372,32 @@ fn main() {
                 // Save to output directory if configured
                 if let Some(ref out_dir) = args.output_dir {
                     let base_filename = sanitize_filename_for_job(&result.source, idx);
-                    let out_path = out_dir.join(format!("{}.cleaned.html", base_filename));
                     let report_path = out_dir.join(format!("{}.report.json", base_filename));
 
-                    if let Err(e) = fs::write(&out_path, content) {
-                        eprintln!("Failed to write cleaned file {:?}: {}", out_path, e);
-                    }
+                    // The audit trail is emitted whatever the verdict: a refusal must be
+                    // just as auditable as a successful clean-up.
                     if let Ok(json) = serde_json::to_string_pretty(report) {
                         let _ = fs::write(&report_path, json);
+                    }
+
+                    if report.file_blocked {
+                        // Refused payloads are never materialised. For PDFs and raster
+                        // images `content` still holds the original attacker-controlled
+                        // bytes (the pipeline returns them verbatim), so writing it would
+                        // hand the user the very file we just refused. We write a tombstone
+                        // describing the refusal instead.
+                        let refused_path = out_dir.join(format!("{}.refused.txt", base_filename));
+                        if let Err(e) =
+                            fs::write(&refused_path, refusal_notice(&source_name, content, report))
+                        {
+                            eprintln!("Failed to write refusal notice {:?}: {}", refused_path, e);
+                        }
+                    } else {
+                        let ext = output_extension(content, &result.source);
+                        let out_path = out_dir.join(format!("{}.cleaned.{}", base_filename, ext));
+                        if let Err(e) = fs::write(&out_path, content) {
+                            eprintln!("Failed to write cleaned file {:?}: {}", out_path, e);
+                        }
                     }
                 }
             }
@@ -478,6 +496,74 @@ fn sanitize_filename_for_job(job: &Job, index: usize) -> String {
             format!("url_{}_{}", index, truncated)
         }
     }
+}
+
+
+/// Builds the human-readable tombstone written in place of a refused payload.
+///
+/// The refused bytes themselves are deliberately *not* included: the whole point of a
+/// refusal is that the payload does not reach the filesystem.
+fn refusal_notice(source: &str, withheld: &[u8], report: &SanitizationReport) -> String {
+    let mut notice = format!(
+        "REFUSED BY WEB-SANITIZER\n\
+         ========================\n\
+         source:             {}\n\
+         withheld payload:   {} bytes (NOT written to disk)\n\
+         actions recorded:   {}\n\
+         \n\
+         Reasons:\n",
+        source,
+        withheld.len(),
+        report.actions.len()
+    );
+
+    for action in &report.actions {
+        notice.push_str(&format!(
+            "  - [{}] {}: {} -> {}\n",
+            action.location.0, action.rule_fired, action.original_fragment, action.replaced_fragment
+        ));
+    }
+
+    notice.push_str("\nSee the accompanying .report.json for the machine-readable audit trail.\n");
+    notice
+}
+
+/// Derives the output file extension from the sanitized payload itself.
+///
+/// Content sniffing comes first (the declared type of the input is never trusted,
+/// per the MIME-confusion requirement), then the input's own extension, and finally
+/// `html` as the last resort. Without this, every output was labelled `.cleaned.html`
+/// regardless of what it actually contained.
+fn output_extension(content: &[u8], job: &Job) -> String {
+    if content.starts_with(b"%PDF-") {
+        return "pdf".to_string();
+    }
+    if content.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return "png".to_string();
+    }
+    if content.starts_with(b"GIF87a") || content.starts_with(b"GIF89a") {
+        return "gif".to_string();
+    }
+    if content.starts_with(b"\xFF\xD8") {
+        return "jpg".to_string();
+    }
+    if content.starts_with(b"RIFF") && content.len() >= 12 && &content[8..12] == b"WEBP" {
+        return "webp".to_string();
+    }
+
+    // SVG has no magic number: look for the root element in the leading bytes.
+    let head = String::from_utf8_lossy(&content[..content.len().min(256)]);
+    if head.contains("<svg") {
+        return "svg".to_string();
+    }
+
+    if let Job::LocalFile(path) = job
+        && let Some(ext) = path.extension().and_then(|s| s.to_str())
+    {
+        return ext.to_ascii_lowercase();
+    }
+
+    "html".to_string()
 }
 
 #[cfg(test)]

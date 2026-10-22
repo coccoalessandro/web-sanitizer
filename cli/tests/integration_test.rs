@@ -138,3 +138,61 @@ fn test_cli_exit_code_on_blocked_content() {
 
     let _ = fs::remove_dir_all(&temp_base);
 }
+
+
+/// A payload that the policy refuses outright must never be materialised on disk,
+/// only its audit trail. Regression test for the output layer writing `content`
+/// verbatim regardless of `file_blocked`.
+#[test]
+fn test_refused_payload_is_never_written_to_disk() {
+    let temp_base = std::env::temp_dir().join("web_sanitizer_refusal_test");
+    let out_dir = temp_base.join("out");
+    let _ = fs::remove_dir_all(&temp_base);
+    fs::create_dir_all(&temp_base).unwrap();
+
+    // PDF carrying both an /OpenAction and a /JavaScript action.
+    let evil = temp_base.join("evil.pdf");
+    fs::write(
+        &evil,
+        b"%PDF-1.4\n1 0 obj\n<< /Type /Action /S /JavaScript /JS (app.alert('PWNED');) >>\n\
+          endobj\ntrailer\n<< /Root 1 0 R /OpenAction 1 0 R >>\n%%EOF",
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cli"))
+        .arg("-f")
+        .arg(&evil)
+        .arg("-o")
+        .arg(&out_dir)
+        .output()
+        .expect("Failed to execute cli binary");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "refused content must produce a non-zero exit code"
+    );
+
+    // The audit trail is produced...
+    assert!(
+        out_dir.join("evil.report.json").exists(),
+        "the JSON audit report must be written even for refused content"
+    );
+    assert!(
+        out_dir.join("evil.refused.txt").exists(),
+        "a refusal notice must be written in place of the payload"
+    );
+
+    // ...but the payload itself must not appear anywhere in the output directory.
+    for entry in fs::read_dir(&out_dir).unwrap() {
+        let path = entry.unwrap().path();
+        let bytes = fs::read(&path).unwrap();
+        assert!(
+            !bytes.starts_with(b"%PDF-"),
+            "the refused PDF payload was materialised at {:?}",
+            path
+        );
+    }
+
+    let _ = fs::remove_dir_all(&temp_base);
+}
