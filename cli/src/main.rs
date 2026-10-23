@@ -14,7 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
-/// Predefined security profiles for the sanitization engine.
+    /// Predefined security profile to use (ignored when --config is given)
 #[derive(ValueEnum, Clone, Debug)]
 enum Profile {
     /// Strict profile: minimal HTML formatting, zero sub-resource downloads, aggressive link removal.

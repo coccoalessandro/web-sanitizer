@@ -1,12 +1,19 @@
-debug
-target
-
+# Build output
+/target
 **/*.rs.bk
-
 *.pdb
 
-**/mutants.out*/
+# Evaluation artefacts: regenerable with scripts/ (see README)
+/corpus_perf/
+/results/
+/results_diag/
+/.venv/
+__pycache__/
 
+# OS / editor
+.DS_Store
 .idea/
 .vscode/
-Cargo.lock
+
+# Mutation testing
+**/mutants.out*/
