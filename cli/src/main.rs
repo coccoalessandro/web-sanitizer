@@ -14,7 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
-    /// Predefined security profile to use (ignored when --config is given)
+/// Predefined security profiles for the sanitization engine.
 #[derive(ValueEnum, Clone, Debug)]
 enum Profile {
     /// Strict profile: minimal HTML formatting, zero sub-resource downloads, aggressive link removal.
@@ -360,7 +360,7 @@ fn main() {
                         for action in &report.actions {
                             println!(
                                 "  - [{}] {}: {} -> {}",
-                                action.location.0,
+                                action.location,
                                 action.rule_fired,
                                 action.original_fragment,
                                 action.replaced_fragment
@@ -520,7 +520,7 @@ fn refusal_notice(source: &str, withheld: &[u8], report: &SanitizationReport) ->
     for action in &report.actions {
         notice.push_str(&format!(
             "  - [{}] {}: {} -> {}\n",
-            action.location.0, action.rule_fired, action.original_fragment, action.replaced_fragment
+            action.location, action.rule_fired, action.original_fragment, action.replaced_fragment
         ));
     }
 

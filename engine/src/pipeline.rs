@@ -17,7 +17,7 @@ use crate::active_content::{check_image_dimensions, inspect_and_sanitize_svg, in
 use crate::network::{fetch_resources_with_cache, is_ssrf_host};
 use crate::parser::sanitize_html;
 use crate::policy::Policy;
-use crate::report::{SanitizationAction, SanitizationReport};
+use crate::report::{Location, SanitizationAction, SanitizationReport};
 
 /// Represents an individual input target to be processed by the pipeline.
 #[derive(Clone, Debug)]
@@ -275,10 +275,10 @@ fn process_job(job: Job, state: &Arc<RwLock<SharedState>>) -> JobResult {
 
         if policy.resources.block_active_documents && check.is_threat_detected {
             report.file_blocked = true;
-            for threat in check.threats {
+            for (threat, offset) in check.threats.into_iter().zip(check.offsets) {
                 report.actions.push(SanitizationAction {
                     rule_fired: "Active document content detected (PDF JavaScript/Launch)".to_string(),
-                    location: (0, 0),
+                    location: Location::Byte { offset },
                     original_fragment: threat,
                     replaced_fragment: "Blocked PDF document containing active script/execution vector".to_string(),
                 });
@@ -344,7 +344,7 @@ fn process_job(job: Job, state: &Arc<RwLock<SharedState>>) -> JobResult {
                 report.file_blocked = true;
                 report.actions.push(SanitizationAction {
                     rule_fired: "Image decompression bomb detected".to_string(),
-                    location: (0, 0),
+                    location: Location::Document,
                     original_fragment: format!("Image payload ({} bytes)", raw_bytes.len()),
                     replaced_fragment: format!("Blocked image decompression bomb: {}", err),
                 });

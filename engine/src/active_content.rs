@@ -6,7 +6,7 @@
 //! - Image decompression bombs (pixel flood attacks in PNG, JPEG, GIF, and WebP).
 
 use crate::policy::Policy;
-use crate::report::SanitizationAction;
+use crate::report::{Location, SanitizationAction};
 
 /// Result of inspecting an active document (PDF, SVG).
 #[derive(Debug, Clone)]
@@ -15,22 +15,31 @@ pub struct ActiveContentCheckResult {
     pub is_threat_detected: bool,
     /// Detailed descriptions of detected threats.
     pub threats: Vec<String>,
+    /// Byte offset of the first occurrence of each threat's marker, parallel to `threats`.
+    pub offsets: Vec<usize>,
+}
+
+/// Position of the first occurrence of `needle` in `haystack` (plain byte search, no copy).
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() {
+        return None; // `windows(0)` would panic
+    }
+    haystack.windows(needle.len()).position(|window| window == needle)
 }
 
 /// Inspects PDF bytes for active content vectors such as JavaScript or execution launches.
 pub fn inspect_pdf(data: &[u8]) -> ActiveContentCheckResult {
     let mut threats = Vec::new();
+    let mut offsets = Vec::new();
 
     // Fast check: verify PDF signature
     if !data.starts_with(b"%PDF-") {
         return ActiveContentCheckResult {
             is_threat_detected: false,
             threats,
+            offsets,
         };
     }
-
-    // Convert bytes lossily to string to search for standard PDF active markers
-    let text = String::from_utf8_lossy(data);
 
     let dangerous_tokens = [
         ("/JavaScript", "Embedded PDF JavaScript action"),
@@ -41,9 +50,13 @@ pub fn inspect_pdf(data: &[u8]) -> ActiveContentCheckResult {
         ("/AcroForm", "Dynamic active form in PDF"),
     ];
 
+    // Markers are ASCII, so searching the raw bytes is equivalent to searching a lossy
+    // UTF-8 decoding, without allocating a copy of the attacker-controlled document,
+    // and it yields offsets that refer to the original input.
     for (token, desc) in &dangerous_tokens {
-        if text.contains(token) {
+        if let Some(offset) = find_bytes(data, token.as_bytes()) {
             threats.push(format!("{}: matched marker '{}'", desc, token));
+            offsets.push(offset);
         }
     }
 
@@ -51,6 +64,7 @@ pub fn inspect_pdf(data: &[u8]) -> ActiveContentCheckResult {
     ActiveContentCheckResult {
         is_threat_detected,
         threats,
+        offsets,
     }
 }
 
@@ -71,7 +85,7 @@ pub fn inspect_and_sanitize_svg(
         if entity_count > 5 || text.contains("&lol;") || text.contains("&entity") {
             actions.push(SanitizationAction {
                 rule_fired: "XML Entity Bomb / XXE mitigation".to_string(),
-                location: (0, 0),
+                location: Location::Document,
                 original_fragment: "<!ENTITY...>".to_string(),
                 replaced_fragment: "Blocked entity expansion".to_string(),
             });
@@ -99,7 +113,7 @@ pub fn inspect_and_sanitize_svg(
         if lower.contains(token) {
             actions.push(SanitizationAction {
                 rule_fired: format!("Active SVG vector blocked: {}", desc),
-                location: (0, 0),
+                location: Location::Document,
                 original_fragment: token.to_string(),
                 replaced_fragment: "Removed active SVG construct".to_string(),
             });
@@ -257,6 +271,11 @@ mod tests {
         let res = inspect_pdf(evil_pdf);
         assert!(res.is_threat_detected);
         assert!(res.threats.iter().any(|t| t.contains("JavaScript")));
+
+        // Each reported offset points at its marker in the original bytes.
+        assert_eq!(res.offsets.len(), res.threats.len());
+        assert!(evil_pdf[res.offsets[0]..].starts_with(b"/JavaScript"));
+        assert!(evil_pdf[res.offsets[1]..].starts_with(b"/JS"));
     }
 
     #[test]

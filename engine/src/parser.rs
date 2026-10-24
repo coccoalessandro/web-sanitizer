@@ -8,13 +8,13 @@
 //! - Sanitizes inline `style="..."` attributes and `<style>` blocks to strip dynamic evaluation and dangerous expressions.
 
 use lol_html::{HtmlRewriter, Settings, element, html_content::ContentType, text};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use url::Url;
 
 use crate::css::sanitize_css;
 use crate::policy::Policy;
-use crate::report::{SanitizationAction, SanitizationReport};
+use crate::report::{Location, SanitizationAction, SanitizationReport};
 use crate::url_sanitizer::{UrlCheckOutcome, inspect_url};
 
 /// Sanitizes raw HTML input bytes according to the provided [`Policy`].
@@ -42,8 +42,19 @@ pub fn sanitize_html(
     let report_closure = Rc::clone(&report);
     let policy_clone = policy.clone();
 
+    // Ordinal (1-based, document order) of the element currently visited. Shared with the
+    // <style> text handler, which runs right after its own start tag (raw text, no children).
+    let element_counter = Rc::new(Cell::new(0usize));
+    let counter_el = Rc::clone(&element_counter);
+
     let mut handlers = vec![element!("*", move |el| {
         let tag_name = el.tag_name();
+        let element_index = counter_el.get() + 1;
+        counter_el.set(element_index);
+        let element_loc = Location::Element {
+            index: element_index,
+            attribute: None,
+        };
 
         // 1. ACTIVE CONTAINERS: iframe, object, embed
         if tag_name == "iframe" || tag_name == "object" || tag_name == "embed" {
@@ -66,7 +77,7 @@ pub fn sanitize_html(
                         .actions
                         .push(SanitizationAction {
                             rule_fired: "Untrusted active content sandboxed".to_string(),
-                            location: (0, 0),
+                            location: element_loc,
                             original_fragment: tag_name.clone(),
                             replaced_fragment: "Added sandbox attribute".to_string(),
                         });
@@ -78,7 +89,7 @@ pub fn sanitize_html(
                         .actions
                         .push(SanitizationAction {
                             rule_fired: "Untrusted active content removed".to_string(),
-                            location: (0, 0),
+                            location: element_loc,
                             original_fragment: tag_name.clone(),
                             replaced_fragment: "Tag removed".to_string(),
                         });
@@ -96,7 +107,7 @@ pub fn sanitize_html(
         {
             let action = SanitizationAction {
                 rule_fired: "Meta refresh block".to_string(),
-                location: (0, 0),
+                location: element_loc,
                 original_fragment: "<meta http-equiv=\"refresh\">".to_string(),
                 replaced_fragment: "Tag removed".to_string(),
             };
@@ -110,7 +121,7 @@ pub fn sanitize_html(
         if !policy_clone.html.allowed_tags.contains(&tag_name) {
             let action = SanitizationAction {
                 rule_fired: "Tag not allowed".to_string(),
-                location: (0, 0),
+                location: element_loc,
                 original_fragment: tag_name.clone(),
                 replaced_fragment: "Tag removed".to_string(),
             };
@@ -126,9 +137,13 @@ pub fn sanitize_html(
         let mut attributes_to_remove: Vec<String> = Vec::new();
         let mut attributes_to_modify: Vec<(String, String)> = Vec::new();
 
-        for attr in el.attributes() {
+        for (attr_pos, attr) in el.attributes().iter().enumerate() {
             let attr_name = attr.name();
             let attr_value = attr.value();
+            let attr_loc = Location::Element {
+                index: element_index,
+                attribute: Some(attr_pos + 1),
+            };
 
             // High-priority check: Inline Event Handlers (onclick, onload, onerror, etc.)
             if attr_name.starts_with("on") && attr_name.len() > 2 {
@@ -137,7 +152,7 @@ pub fn sanitize_html(
                     .actions
                     .push(SanitizationAction {
                         rule_fired: "Inline event handler stripped".to_string(),
-                        location: (0, 0),
+                        location: attr_loc,
                         original_fragment: format!("{}=\"{}\"", attr_name, attr_value),
                         replaced_fragment: "Attribute stripped".to_string(),
                     });
@@ -153,7 +168,7 @@ pub fn sanitize_html(
                     .actions
                     .push(SanitizationAction {
                         rule_fired: "Attribute not allowed".to_string(),
-                        location: (0, 0),
+                        location: attr_loc,
                         original_fragment: attr_name.clone(),
                         replaced_fragment: "Attribute removed".to_string(),
                     });
@@ -165,7 +180,8 @@ pub fn sanitize_html(
             if attr_name == "style" && policy_clone.html.sanitize_inline_styles {
                 let (sanitized_css, css_actions) = sanitize_css(&attr_value, &policy_clone);
                 if !css_actions.is_empty() || sanitized_css != attr_value {
-                    for action in css_actions {
+                    for mut action in css_actions {
+                        action.location = attr_loc;
                         report_closure.borrow_mut().actions.push(action);
                     }
                     attributes_to_modify.push((attr_name.clone(), sanitized_css));
@@ -184,11 +200,13 @@ pub fn sanitize_html(
             if is_url_attr {
                 let is_src = attr_name == "src" || (tag_name == "link" && attr_name == "href");
                 match inspect_url(&attr_value, is_src, &policy_clone) {
-                    UrlCheckOutcome::Remove(action) => {
+                    UrlCheckOutcome::Remove(mut action) => {
+                        action.location = attr_loc;
                         report_closure.borrow_mut().actions.push(action);
                         attributes_to_remove.push(attr_name);
                     }
-                    UrlCheckOutcome::Rewritten(new_val, action) => {
+                    UrlCheckOutcome::Rewritten(new_val, mut action) => {
+                        action.location = attr_loc;
                         report_closure.borrow_mut().actions.push(action);
                         attributes_to_modify.push((attr_name, new_val));
                     }
@@ -219,11 +237,18 @@ pub fn sanitize_html(
     if policy.html.sanitize_style_tags && policy.html.allowed_tags.contains("style") {
         let report_text_closure = Rc::clone(&report);
         let policy_text_clone = policy.clone();
+        let counter_text = Rc::clone(&element_counter);
         handlers.push(text!("style", move |chunk| {
             let original_css = chunk.as_str();
             let (sanitized_css, css_actions) = sanitize_css(original_css, &policy_text_clone);
             if !css_actions.is_empty() || sanitized_css != original_css {
-                for action in css_actions {
+                // The most recently visited element is the <style> element itself.
+                let style_loc = Location::Element {
+                    index: counter_text.get(),
+                    attribute: None,
+                };
+                for mut action in css_actions {
+                    action.location = style_loc;
                     report_text_closure.borrow_mut().actions.push(action);
                 }
                 chunk.replace(&sanitized_css, ContentType::Text);

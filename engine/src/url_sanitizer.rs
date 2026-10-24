@@ -7,7 +7,7 @@
 //! - Blocked domain and tracking beacon matching.
 
 use crate::policy::{LinkAction, Policy};
-use crate::report::SanitizationAction;
+use crate::report::{Location, SanitizationAction};
 use url::Url;
 
 /// Outcome of inspecting and validating a URL against policy rules.
@@ -40,7 +40,7 @@ pub fn inspect_url(raw_url: &str, _is_src_attribute: bool, policy: &Policy) -> U
     {
         return UrlCheckOutcome::Remove(SanitizationAction {
             rule_fired: "Malicious URI scheme blocked".to_string(),
-            location: (0, 0),
+            location: Location::Document,
             original_fragment: raw_url.to_string(),
             replaced_fragment: "Attribute stripped".to_string(),
         });
@@ -50,7 +50,7 @@ pub fn inspect_url(raw_url: &str, _is_src_attribute: bool, policy: &Policy) -> U
     if policy.html.block_data_uris && lower_clean.starts_with("data:") {
         return UrlCheckOutcome::Remove(SanitizationAction {
             rule_fired: "data: URI scheme disallowed by policy".to_string(),
-            location: (0, 0),
+            location: Location::Document,
             original_fragment: raw_url.to_string(),
             replaced_fragment: "Attribute stripped".to_string(),
         });
@@ -65,7 +65,7 @@ pub fn inspect_url(raw_url: &str, _is_src_attribute: bool, policy: &Policy) -> U
                 "Unicode normalization confusion / Host-Split detected (character U+{:04X})",
                 bad_char as u32
             ),
-            location: (0, 0),
+            location: Location::Document,
             original_fragment: raw_url.to_string(),
             replaced_fragment: "Suspicious link mitigated".to_string(),
         };
@@ -80,7 +80,7 @@ pub fn inspect_url(raw_url: &str, _is_src_attribute: bool, policy: &Policy) -> U
         Err(_) => {
             return UrlCheckOutcome::Remove(SanitizationAction {
                 rule_fired: "Malformed URL parsing failure".to_string(),
-                location: (0, 0),
+                location: Location::Document,
                 original_fragment: raw_url.to_string(),
                 replaced_fragment: "Attribute stripped".to_string(),
             });
@@ -94,7 +94,7 @@ pub fn inspect_url(raw_url: &str, _is_src_attribute: bool, policy: &Policy) -> U
     {
         return UrlCheckOutcome::Remove(SanitizationAction {
             rule_fired: "Dangerous parsed URL scheme".to_string(),
-            location: (0, 0),
+            location: Location::Document,
             original_fragment: raw_url.to_string(),
             replaced_fragment: "Attribute stripped".to_string(),
         });
@@ -119,7 +119,7 @@ pub fn inspect_url(raw_url: &str, _is_src_attribute: bool, policy: &Policy) -> U
 
             let action = SanitizationAction {
                 rule_fired: format!("Suspicious URL mitigated: {}", reason),
-                location: (0, 0),
+                location: Location::Document,
                 original_fragment: raw_url.to_string(),
                 replaced_fragment: "Rewritten or stripped by policy".to_string(),
             };

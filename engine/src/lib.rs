@@ -24,6 +24,7 @@ pub mod url_sanitizer;
 mod tests {
     use super::*;
     use crate::policy::Policy;
+    use crate::report::Location;
     use parser::*;
 
     // 1. Base XSS Test
@@ -184,6 +185,44 @@ mod tests {
                 .iter()
                 .any(|a| a.rule_fired.contains("Host-Split"))
         );
+    }
+
+    // 11. Structural location of actions
+    #[test]
+    fn test_actions_report_structural_location() {
+        let policy = Policy::balanced();
+        // element #1 <div>, #2 <script>, #3 <a> whose 2nd attribute is an event handler
+        let html_input = b"<div>ok</div><script>x()</script>\
+<a href=\"https://example.org\" onclick=\"y()\">l</a>";
+
+        let (_, report) = sanitize_html(html_input, &policy).unwrap();
+
+        let script = report
+            .actions
+            .iter()
+            .find(|a| a.original_fragment == "script")
+            .expect("script removal must be reported");
+        assert_eq!(
+            script.location,
+            Location::Element {
+                index: 2,
+                attribute: None
+            }
+        );
+
+        let handler = report
+            .actions
+            .iter()
+            .find(|a| a.rule_fired.contains("Inline event handler"))
+            .expect("event handler stripping must be reported");
+        assert_eq!(
+            handler.location,
+            Location::Element {
+                index: 3,
+                attribute: Some(2)
+            }
+        );
+        assert_eq!(handler.location.to_string(), "element #3, attr #2");
     }
 
     // 10. Data URI Disallowed Test

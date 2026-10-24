@@ -7,7 +7,7 @@
 //! - Untrusted `@import` directives targeting blocked or suspicious origins
 
 use crate::policy::Policy;
-use crate::report::SanitizationAction;
+use crate::report::{Location, SanitizationAction};
 
 /// Sanitizes a CSS stylesheet or inline `style` attribute value.
 ///
@@ -25,7 +25,7 @@ pub fn sanitize_css(css_input: &str, policy: &Policy) -> (String, Vec<Sanitizati
         if normalized.contains("expression(") || normalized.contains("expression (") {
             actions.push(SanitizationAction {
                 rule_fired: "CSS expression blocked".to_string(),
-                location: (0, 0),
+                location: Location::Document,
                 original_fragment: "expression(...)".to_string(),
                 replaced_fragment: "Property stripped".to_string(),
             });
@@ -37,7 +37,7 @@ pub fn sanitize_css(css_input: &str, policy: &Policy) -> (String, Vec<Sanitizati
         if normalized.contains("-moz-binding") {
             actions.push(SanitizationAction {
                 rule_fired: "CSS -moz-binding blocked".to_string(),
-                location: (0, 0),
+                location: Location::Document,
                 original_fragment: "-moz-binding".to_string(),
                 replaced_fragment: "Property stripped".to_string(),
             });
@@ -48,7 +48,7 @@ pub fn sanitize_css(css_input: &str, policy: &Policy) -> (String, Vec<Sanitizati
         if normalized.contains("behavior:") || normalized.contains("behavior :") {
             actions.push(SanitizationAction {
                 rule_fired: "CSS behavior property blocked".to_string(),
-                location: (0, 0),
+                location: Location::Document,
                 original_fragment: "behavior".to_string(),
                 replaced_fragment: "Property stripped".to_string(),
             });
@@ -187,7 +187,7 @@ fn sanitize_css_urls(line: &str, policy: &Policy) -> (String, Vec<SanitizationAc
             if is_js || is_vb || is_data_html || is_blocked_host {
                 actions.push(SanitizationAction {
                     rule_fired: "CSS dangerous url() removed".to_string(),
-                    location: (0, 0),
+                    location: Location::Document,
                     original_fragment: clean_inner.to_string(),
                     replaced_fragment: "url(about:blank)".to_string(),
                 });
@@ -221,7 +221,7 @@ fn sanitize_css_import(line: &str, policy: &Policy) -> (String, Vec<Sanitization
     if has_danger {
         actions.push(SanitizationAction {
             rule_fired: "Malicious CSS @import stripped".to_string(),
-            location: (0, 0),
+            location: Location::Document,
             original_fragment: line.trim().to_string(),
             replaced_fragment: "/* @import removed */".to_string(),
         });
@@ -233,7 +233,7 @@ fn sanitize_css_import(line: &str, policy: &Policy) -> (String, Vec<Sanitization
         if norm.contains(blocked) {
             actions.push(SanitizationAction {
                 rule_fired: "Blocked domain in CSS @import".to_string(),
-                location: (0, 0),
+                location: Location::Document,
                 original_fragment: line.trim().to_string(),
                 replaced_fragment: "/* @import removed */".to_string(),
             });
