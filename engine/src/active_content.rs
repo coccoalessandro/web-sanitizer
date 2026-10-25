@@ -68,6 +68,63 @@ pub fn inspect_pdf(data: &[u8]) -> ActiveContentCheckResult {
     }
 }
 
+/// Maximum number of entity declarations tolerated in an internal DTD subset.
+pub const MAX_ENTITY_DECLARATIONS: usize = 16;
+
+/// Inspects the internal DTD subset of an XML or SVG document for entity-based attacks.
+///
+/// No entity is ever expanded: declarations are only scanned. Returns the reason when
+/// the document must be refused:
+/// - an external entity (`SYSTEM` / `PUBLIC`): XML External Entity (XXE) injection;
+/// - an entity whose replacement text references another entity: the nesting that makes
+///   "Billion Laughs" expansion exponential (10 levels of 10 references = 10^10 copies);
+/// - more than [`MAX_ENTITY_DECLARATIONS`] declarations.
+///
+/// This replaces a heuristic that looked for the literal names used by well-known
+/// samples (`&lol;`), which any renamed bomb would bypass.
+pub fn check_xml_entities(text: &str) -> Option<String> {
+    let declarations: Vec<&str> = text
+        .split("<!ENTITY")
+        .skip(1)
+        .map(|rest| rest.split('>').next().unwrap_or(rest))
+        .collect();
+
+    if declarations.len() > MAX_ENTITY_DECLARATIONS {
+        return Some(format!(
+            "{} entity declarations (limit {})",
+            declarations.len(),
+            MAX_ENTITY_DECLARATIONS
+        ));
+    }
+
+    for decl in &declarations {
+        let mut words = decl.split_whitespace();
+        let mut name = words.next().unwrap_or("?");
+        if name == "%" {
+            name = words.next().unwrap_or("?"); // parameter entity: <!ENTITY % name ...>
+        }
+        let kind = words.next().unwrap_or("");
+        if kind == "SYSTEM" || kind == "PUBLIC" {
+            return Some(format!("external entity '{name}' ({kind}): XXE"));
+        }
+        if references_entity(decl) {
+            return Some(format!(
+                "entity '{name}' references other entities (nested expansion, Billion Laughs pattern)"
+            ));
+        }
+    }
+    None
+}
+
+/// Whether `s` contains a general (`&name;`) or parameter (`%name;`) entity reference.
+/// Character references (`&#...;`) are not entity references and are ignored.
+fn references_entity(s: &str) -> bool {
+    s.as_bytes().windows(2).any(|w| {
+        (w[0] == b'&' || w[0] == b'%')
+            && (w[1].is_ascii_alphabetic() || w[1] == b'_' || w[1] == b':')
+    })
+}
+
 /// Inspects and sanitizes SVG bytes, stripping `<script>`, inline event handlers, and XML entity bombs.
 pub fn inspect_and_sanitize_svg(
     svg_data: &[u8],
@@ -78,20 +135,15 @@ pub fn inspect_and_sanitize_svg(
 
     let text = String::from_utf8_lossy(svg_data);
 
-    // 1. XML Entity Bomb (Billion Laughs) check
-    if text.contains("<!ENTITY") {
-        // Count entity declarations or detect recursive references
-        let entity_count = text.matches("<!ENTITY").count();
-        if entity_count > 5 || text.contains("&lol;") || text.contains("&entity") {
-            actions.push(SanitizationAction {
-                rule_fired: "XML Entity Bomb / XXE mitigation".to_string(),
-                location: Location::Document,
-                original_fragment: "<!ENTITY...>".to_string(),
-                replaced_fragment: "Blocked entity expansion".to_string(),
-            });
-            blocked = true;
-            return (Vec::new(), actions, blocked);
-        }
+    // 1. XML Entity Bomb (Billion Laughs) and XXE check
+    if let Some(reason) = check_xml_entities(&text) {
+        actions.push(SanitizationAction {
+            rule_fired: "XML Entity Bomb / XXE mitigation".to_string(),
+            location: Location::Document,
+            original_fragment: reason,
+            replaced_fragment: "Blocked entity expansion".to_string(),
+        });
+        return (Vec::new(), actions, true);
     }
 
     // 2. Active content in SVG: scripts, onload, etc.
@@ -298,6 +350,20 @@ mod tests {
                 .iter()
                 .any(|a| a.rule_fired.contains("XML Entity Bomb"))
         );
+    }
+
+    #[test]
+    fn test_xml_entity_rules() {
+        // A flat, non-nested entity is harmless.
+        assert!(check_xml_entities("<!DOCTYPE a [<!ENTITY c \"(c)\">]><a>&c;</a>").is_none());
+        // No DTD at all.
+        assert!(check_xml_entities("<a>plain &#169; text</a>").is_none());
+        // Nested references: Billion Laughs, whatever the entity names are.
+        let bomb = "<!DOCTYPE a [<!ENTITY x \"y\"><!ENTITY z \"&x;&x;\">]><a>&z;</a>";
+        assert!(check_xml_entities(bomb).unwrap().contains("nested"));
+        // External entity: XXE.
+        let xxe = "<!DOCTYPE a [<!ENTITY f SYSTEM \"file:///etc/passwd\">]><a>&f;</a>";
+        assert!(check_xml_entities(xxe).unwrap().contains("XXE"));
     }
 
     #[test]
