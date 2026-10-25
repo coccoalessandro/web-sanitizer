@@ -549,6 +549,25 @@ fn sanitize_job(
     }
 
     if policy.resources.max_fetch_depth > 0 && !report.resources_to_fetch.is_empty() {
+        // The fetcher stops at max_requests_per_job; say so in the report, otherwise the
+        // cap is invisible. Counts the document's own references (first level).
+        let referenced = report
+            .resources_to_fetch
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        if referenced > policy.resources.max_requests_per_job {
+            report.actions.push(SanitizationAction {
+                rule_fired: "Sub-resource request cap reached".to_string(),
+                location: Location::Document,
+                original_fragment: format!("{referenced} distinct sub-resources referenced"),
+                replaced_fragment: format!(
+                    "only the first {} are fetched (max_requests_per_job)",
+                    policy.resources.max_requests_per_job
+                ),
+            });
+        }
+
         let mut visited = std::collections::HashSet::new();
 
         // Read cache snapshot to avoid redundant downloads
@@ -914,6 +933,36 @@ mod tests {
             .any(|a| a.rule_fired.contains("Internal network address")));
         // Nothing was fetched from the metadata address (no timeout was waited for).
         assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    }
+
+    #[test]
+    fn test_sub_resource_request_cap_is_reported() {
+        let mut html = String::from("<p>gallery</p>");
+        for i in 0..25 {
+            // Trusted loopback on a closed port: every fetch fails fast, no external traffic.
+            html.push_str(&format!("<img src=\"http://127.0.0.1:9/img{i}.png\">"));
+        }
+        let path = std::env::temp_dir().join("web_sanitizer_request_cap.html");
+        fs::write(&path, html).unwrap();
+
+        let mut policy = Policy::balanced();
+        policy
+            .resources
+            .trusted_internal_hosts
+            .insert("127.0.0.1".to_string());
+        policy.resources.max_requests_per_job = 20;
+        policy.resources.timeout_ms = 500;
+
+        let (results, _) = run_pipeline_with_stats(vec![Job::LocalFile(path.clone())], policy);
+        let _ = fs::remove_file(&path);
+
+        let (_, report) = results[0].output.as_ref().expect("a local job must not fail");
+        let cap = report
+            .actions
+            .iter()
+            .find(|a| a.rule_fired.contains("request cap"))
+            .expect("the cap must be reported");
+        assert!(cap.original_fragment.contains("25"));
     }
 
     #[test]

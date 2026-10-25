@@ -200,7 +200,7 @@ impl Policy {
             },
             resources: ResourcePolicy {
                 max_fetch_depth: 3,
-                max_requests_per_job: 50,
+                max_requests_per_job: 20,
                 max_resource_size_bytes: 2 * 1024 * 1024,
                 max_decompressed_size_bytes: 10 * 1024 * 1024,
                 max_image_pixels: 50_000_000,

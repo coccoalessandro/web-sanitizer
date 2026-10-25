@@ -74,6 +74,23 @@ pub fn inspect_url(raw_url: &str, _is_src_attribute: bool, policy: &Policy) -> U
         return apply_suspicious_link_action(raw_url, action, policy);
     }
 
+    // 4b. Parser-confusion constructs in the authority: backslashes, userinfo ('@') and
+    //     percent-encoded host characters are read differently by different URL parsers
+    //     (WHATWG vs RFC 3986), which is what Host/Split-style filter bypasses exploit.
+    //     E.g. `http://169.254.169.254%2Eevil.com/` is a subdomain of evil.com for one
+    //     parser and a cloud-metadata address followed by junk for another.
+    if policy.urls.check_unicode_host_split
+        && let Some(construct) = find_authority_confusion(&clean_str)
+    {
+        let action = SanitizationAction {
+            rule_fired: format!("URL parser confusion in authority ({construct})"),
+            location: Location::Document,
+            original_fragment: raw_url.to_string(),
+            replaced_fragment: "Suspicious link mitigated".to_string(),
+        };
+        return apply_suspicious_link_action(raw_url, action, policy);
+    }
+
     // 5. Parse URL using standard URL parser with a base fallback for relative URLs
     let base_addr = Url::parse("http://internal.base").unwrap();
     let parsed = match base_addr.join(&clean_str) {
@@ -202,6 +219,50 @@ fn find_host_split_character(input: &str) -> Option<char> {
     None
 }
 
+/// Returns the first parser-confusion construct found in the URL authority, if any.
+///
+/// Only absolute (`scheme://...`) and protocol-relative (`//...`) URLs have an authority;
+/// `@` or `%` in a path or query are ordinary and are not flagged.
+fn find_authority_confusion(url: &str) -> Option<&'static str> {
+    let after_scheme = match url.find(':') {
+        Some(pos)
+            if pos > 0
+                && url[..pos].starts_with(|c: char| c.is_ascii_alphabetic())
+                && url[..pos]
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.') =>
+        {
+            &url[pos + 1..]
+        }
+        // No valid scheme: only a protocol-relative URL has an authority.
+        _ if url.starts_with("//") || url.starts_with("\\") => url,
+        _ => return None,
+    };
+
+    // Browsers treat '\' like '/' after a special scheme ("http:\\evil.com"), most other
+    // parsers do not: any backslash where the authority starts is already a confusion.
+    if after_scheme.starts_with('\\') || after_scheme.starts_with("/\\") {
+        return Some("backslash");
+    }
+    let Some(rest) = after_scheme.strip_prefix("//") else {
+        return None; // opaque URL (mailto:, tel:, ...): no authority
+    };
+
+    let end = rest
+        .find(|c: char| c == '/' || c == '?' || c == '#')
+        .unwrap_or(rest.len());
+    let authority = &rest[..end];
+    if authority.contains('\\') {
+        Some("backslash")
+    } else if authority.contains('@') {
+        Some("userinfo '@'")
+    } else if authority.contains('%') {
+        Some("percent-encoded host")
+    } else {
+        None
+    }
+}
+
 /// Decodes decimal and hexadecimal HTML numeric character references (e.g. `&#x09;`, `&#10;`).
 fn decode_html_numeric_entities(input: &str) -> String {
     let mut result = String::with_capacity(input.len());
@@ -304,6 +365,35 @@ mod tests {
             inspect_url("http://10.0.0.1/admin", false, &open),
             UrlCheckOutcome::Safe(_)
         ));
+    }
+
+    #[test]
+    fn test_authority_parser_confusion() {
+        let policy = Policy::balanced();
+        for url in [
+            "http://169.254.169.254%2Eevil.com/",
+            "http://google.com@evil.com/login",
+            "http://evil.com\\@169.254.169.254/",
+            "http:\\\\evil.com/",
+        ] {
+            let outcome = inspect_url(url, false, &policy);
+            assert!(
+                matches!(outcome, UrlCheckOutcome::Rewritten(_, ref a) if a.rule_fired.contains("parser confusion")),
+                "{url} must be mitigated"
+            );
+        }
+        // '@' and '%' outside the authority are ordinary.
+        for url in [
+            "https://example.org/path%20with%20spaces",
+            "https://example.org/u?mail=a@b.org",
+            "/relative/path?next=http://x@y",
+            "mailto:someone@example.org",
+        ] {
+            assert!(
+                matches!(inspect_url(url, false, &policy), UrlCheckOutcome::Safe(_)),
+                "{url} must be left alone"
+            );
+        }
     }
 
     #[test]

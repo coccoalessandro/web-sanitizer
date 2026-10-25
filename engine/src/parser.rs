@@ -92,8 +92,10 @@ pub fn sanitize_html(
                             replaced_fragment: "Added sandbox attribute".to_string(),
                         });
                 } else {
+                    // Removing the container is ordinary sanitisation: the page is still
+                    // served. Profiles that refuse such pages (rewrite_active_content =
+                    // false, e.g. strict) are handled by the pipeline.
                     el.remove();
-                    report_closure.borrow_mut().file_blocked = true;
                     report_closure
                         .borrow_mut()
                         .actions

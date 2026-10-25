@@ -205,6 +205,20 @@ mod tests {
             && a.replaced_fragment.contains("content kept")));
     }
 
+    // 13. Untrusted active containers are removed, the page itself is not refused
+    #[test]
+    fn test_untrusted_iframe_is_removed_without_refusing_the_page() {
+        let policy = Policy::balanced();
+        let html_input = b"<p>keep me</p><iframe src=\"https://evil.example/frame\"></iframe>";
+
+        let (output_bytes, report) = sanitize_html(html_input, &policy).unwrap();
+        let output = String::from_utf8(output_bytes).unwrap();
+
+        assert!(output.contains("<p>keep me</p>"));
+        assert!(!output.contains("iframe"));
+        assert!(!report.file_blocked, "balanced sanitises the page instead of refusing it");
+    }
+
     // 11. Structural location of actions
     #[test]
     fn test_actions_report_structural_location() {
