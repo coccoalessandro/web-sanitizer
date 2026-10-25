@@ -18,7 +18,7 @@ use crate::active_content::{
     check_image_dimensions, check_xml_entities, inspect_and_sanitize_svg, inspect_pdf,
 };
 use crate::css::sanitize_css;
-use crate::network::{fetch_resources_with_cache, is_ssrf_host};
+use crate::network::{fetch_resources_with_cache, is_blocked_internal};
 use crate::parser::sanitize_html;
 use crate::policy::Policy;
 use crate::report::{Location, SanitizationAction, SanitizationReport};
@@ -225,10 +225,8 @@ fn acquire_input(
             let parsed_url =
                 Url::parse(url_str).map_err(|e| format!("Invalid URL syntax: {}", e))?;
 
-            // SSRF check on top-level input URL
-            if policy.resources.block_internal_ips
-                && is_ssrf_host(&parsed_url, policy.resources.resolve_dns_for_ssrf)
-            {
+            // SSRF check on top-level input URL (trusted internal hosts excepted)
+            if is_blocked_internal(&parsed_url, policy) {
                 return Err(
                     "Blocked URL request to internal / private IP (SSRF defense)".to_string(),
                 );
@@ -535,7 +533,6 @@ fn sanitize_job(
     let (sanitized_content, mut report) =
         sanitize_html(&raw_bytes, policy).map_err(|e| format!("Parser error: {}", e))?;
     report.file_name = job.name();
-    report.time_elapsed = start_time.elapsed().as_millis() as u64;
     if !mime_actions.is_empty() {
         mime_actions.append(&mut report.actions);
         report.actions = mime_actions;
@@ -575,6 +572,8 @@ fn sanitize_job(
         }
     }
 
+    // Measured last, so that it includes sub-resource fetching.
+    report.time_elapsed = start_time.elapsed().as_millis() as u64;
     Ok((sanitized_content, report))
 }
 
@@ -885,6 +884,36 @@ mod tests {
             .actions
             .iter()
             .any(|a| a.rule_fired.contains("MIME confusion")));
+    }
+
+    #[test]
+    fn test_trusted_internal_host_keeps_ssrf_guard_on() {
+        // The test origin (127.0.0.1) is trusted; the cloud-metadata address it references
+        // is not, so the guard must neutralise it instead of fetching it.
+        let body = b"<html><body><p>ok</p><img src=\"http://169.254.169.254/latest/meta-data/\"></body></html>".to_vec();
+        let url = serve_once(&head_for("text/html", &body), body, None);
+        let mut policy = budget_policy();
+        policy.resources.block_internal_ips = true;
+        policy.resources.trusted_internal_hosts.insert("127.0.0.1".to_string());
+        policy.resources.max_fetch_depth = 3;
+
+        let started = Instant::now();
+        let (results, stats) = run_pipeline_with_stats(vec![Job::RemoteUrl(url)], policy);
+        let (output, report) = results[0]
+            .output
+            .as_ref()
+            .expect("a trusted origin must be fetched");
+        assert_eq!(stats.failed_jobs, 0);
+
+        let html = String::from_utf8_lossy(output);
+        assert!(html.contains("<p>ok</p>"), "page content must survive");
+        assert!(!html.contains("169.254.169.254"), "internal address must not be served");
+        assert!(report
+            .actions
+            .iter()
+            .any(|a| a.rule_fired.contains("Internal network address")));
+        // Nothing was fetched from the metadata address (no timeout was waited for).
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
     #[test]

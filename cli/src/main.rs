@@ -134,6 +134,11 @@ struct Args {
     #[arg(long)]
     block_internal_ips: Option<bool>,
 
+    /// Internal host to trust despite the SSRF guard, e.g. a local test origin (repeatable).
+    /// All other internal addresses stay blocked.
+    #[arg(long = "trust-internal-host", value_name = "HOST")]
+    trust_internal_host: Vec<String>,
+
     /// Whether to resolve DNS to prevent DNS rebinding SSRF
     #[arg(long)]
     resolve_dns_for_ssrf: Option<bool>,
@@ -295,6 +300,12 @@ fn main() {
     }
     if let Some(val) = args.block_internal_ips {
         policy.resources.block_internal_ips = val;
+    }
+    for host in &args.trust_internal_host {
+        policy
+            .resources
+            .trusted_internal_hosts
+            .insert(host.trim().to_ascii_lowercase());
     }
     if let Some(val) = args.resolve_dns_for_ssrf {
         policy.resources.resolve_dns_for_ssrf = val;

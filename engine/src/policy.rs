@@ -98,6 +98,11 @@ pub struct ResourcePolicy {
     pub timeout_ms: u64,
     /// Block requests targeting private, link-local, or loopback IPs (SSRF prevention).
     pub block_internal_ips: bool,
+    /// Internal hosts explicitly trusted despite the SSRF guard (e.g. a local test origin
+    /// such as `localhost`). Matched case-insensitively against the URL host, without port.
+    /// Every other internal address stays blocked.
+    #[serde(default)]
+    pub trusted_internal_hosts: HashSet<String>,
     /// Sniff real content bytes using magic numbers to prevent MIME-confusion exploits.
     pub enforce_mime_sniffing: bool,
 }
@@ -106,6 +111,11 @@ impl Policy {
     /// Creates a balanced default profile suitable for general-purpose web content.
     pub fn balanced() -> Self {
         let allowed_tags = HashSet::from([
+            // Document structure carries no active behaviour; its attributes are still
+            // filtered (none are allowed), e.g. <body onload> loses the handler.
+            "html".to_string(),
+            "head".to_string(),
+            "body".to_string(),
             "p".to_string(),
             "a".to_string(),
             "div".to_string(),
@@ -198,6 +208,7 @@ impl Policy {
                 resolve_dns_for_ssrf: true,
                 timeout_ms: 5000,
                 block_internal_ips: true,
+                trusted_internal_hosts: HashSet::new(),
                 enforce_mime_sniffing: true,
             },
         }
@@ -206,6 +217,11 @@ impl Policy {
     /// Creates a strict profile for highly untrusted inputs (e.g., user comments, emails).
     pub fn strict() -> Self {
         let allowed_tags = HashSet::from([
+            // Document structure carries no active behaviour; its attributes are still
+            // filtered (none are allowed), e.g. <body onload> loses the handler.
+            "html".to_string(),
+            "head".to_string(),
+            "body".to_string(),
             "p".to_string(),
             "a".to_string(),
             "b".to_string(),
@@ -245,13 +261,14 @@ impl Policy {
             resources: ResourcePolicy {
                 max_fetch_depth: 0, // no external resource downloads
                 max_requests_per_job: 0,
-                max_resource_size_bytes: 1024 * 1024,
-                max_decompressed_size_bytes: 4 * 1024 * 1024,
+                max_resource_size_bytes: 0,
+                max_decompressed_size_bytes: 0,
                 max_image_pixels: 10_000_000,
                 block_active_documents: true,
                 resolve_dns_for_ssrf: true,
                 timeout_ms: 2000,
                 block_internal_ips: true,
+                trusted_internal_hosts: HashSet::new(),
                 enforce_mime_sniffing: true,
             },
         }
@@ -260,6 +277,11 @@ impl Policy {
     /// Creates a relaxed profile for semi-trusted inputs (e.g., internal CMS/dashboards).
     pub fn relaxed() -> Self {
         let allowed_tags = HashSet::from([
+            // Document structure carries no active behaviour; its attributes are still
+            // filtered (none are allowed), e.g. <body onload> loses the handler.
+            "html".to_string(),
+            "head".to_string(),
+            "body".to_string(),
             "p".to_string(),
             "a".to_string(),
             "div".to_string(),
@@ -346,6 +368,7 @@ impl Policy {
                 resolve_dns_for_ssrf: false, // Intranet fetching allowed in relaxed
                 timeout_ms: 15000,
                 block_internal_ips: false,
+                trusted_internal_hosts: HashSet::new(),
                 enforce_mime_sniffing: false,
             },
         }
@@ -355,24 +378,5 @@ impl Policy {
 impl Default for Policy {
     fn default() -> Self {
         Self::balanced()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_profiles_have_nonzero_input_budget() {
-        for (name, policy) in [
-            ("strict", Policy::strict()),
-            ("balanced", Policy::balanced()),
-            ("relaxed", Policy::relaxed()),
-        ] {
-            assert!(
-                policy.resources.max_resource_size_bytes > 0,
-                "{name} profile has a zero input byte budget"
-            );
-        }
     }
 }

@@ -17,6 +17,16 @@ use crate::policy::Policy;
 use crate::report::{Location, SanitizationAction, SanitizationReport};
 use crate::url_sanitizer::{UrlCheckOutcome, inspect_url};
 
+/// Disallowed elements whose *content* is dangerous or never meant to be rendered: they are
+/// removed together with everything inside them. Any other disallowed element is unwrapped
+/// (tag removed, content kept), so that a disallowed wrapper such as `<html>` or `<section>`
+/// does not erase the text it contains. Elements nested inside an unwrapped element are
+/// still visited and filtered individually.
+const DROP_WITH_CONTENT: &[&str] = &[
+    "script", "style", "iframe", "frame", "frameset", "object", "embed", "applet", "noscript",
+    "noembed", "noframes", "template", "head", "title",
+];
+
 /// Sanitizes raw HTML input bytes according to the provided [`Policy`].
 ///
 /// Returns a tuple containing:
@@ -119,15 +129,24 @@ pub fn sanitize_html(
 
         // 3. TAG CHECK: Verify allow-list
         if !policy_clone.html.allowed_tags.contains(&tag_name) {
+            let drop_content = DROP_WITH_CONTENT.contains(&tag_name.as_str());
             let action = SanitizationAction {
                 rule_fired: "Tag not allowed".to_string(),
                 location: element_loc,
                 original_fragment: tag_name.clone(),
-                replaced_fragment: "Tag removed".to_string(),
+                replaced_fragment: if drop_content {
+                    "Tag and content removed".to_string()
+                } else {
+                    "Tag removed, content kept".to_string()
+                },
             };
 
             report_closure.borrow_mut().actions.push(action);
-            el.remove();
+            if drop_content {
+                el.remove();
+            } else {
+                el.remove_and_keep_content();
+            }
             return Ok(());
         }
 

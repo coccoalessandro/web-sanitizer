@@ -187,6 +187,24 @@ mod tests {
         );
     }
 
+    // 12. Disallowed wrappers are unwrapped, dangerous elements dropped with their content
+    #[test]
+    fn test_disallowed_wrapper_keeps_content() {
+        let policy = Policy::balanced();
+        let html_input = b"<!doctype html><html><body><section><p>Visible text</p></section>\
+<script>alert(1)</script></body></html>";
+
+        let (output_bytes, report) = sanitize_html(html_input, &policy).unwrap();
+        let output = String::from_utf8(output_bytes).unwrap();
+
+        assert!(output.contains("<p>Visible text</p>"), "content of a disallowed wrapper must survive");
+        assert!(!output.contains("<section"));
+        assert!(!output.contains("alert(1)"), "script content must be dropped");
+        assert!(output.contains("<body>"));
+        assert!(report.actions.iter().any(|a| a.original_fragment == "section"
+            && a.replaced_fragment.contains("content kept")));
+    }
+
     // 11. Structural location of actions
     #[test]
     fn test_actions_report_structural_location() {

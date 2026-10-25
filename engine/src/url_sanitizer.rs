@@ -6,6 +6,7 @@
 //! - IDN homograph / Punycode spoofing (`xn--...`).
 //! - Blocked domain and tracking beacon matching.
 
+use crate::network::{is_ssrf_host, is_trusted_internal_host};
 use crate::policy::{LinkAction, Policy};
 use crate::report::{Location, SanitizationAction};
 use url::Url;
@@ -107,9 +108,16 @@ pub fn inspect_url(raw_url: &str, _is_src_attribute: bool, policy: &Policy) -> U
         let is_punycode = host.starts_with("xn--") || host.contains(".xn--");
         let is_malware = is_domain_in_set(host, &policy.urls.blocked_domains);
         let is_tracker = is_domain_in_set(host, &policy.urls.tracker_domains);
+        // Literal internal addresses (loopback, private, link-local, cloud metadata) and
+        // localhost-style names. No DNS lookup here: this runs for every attribute.
+        let is_internal = policy.resources.block_internal_ips
+            && !is_trusted_internal_host(&parsed, policy)
+            && is_ssrf_host(&parsed, false);
 
-        if (is_punycode && policy.urls.check_idn_homographs) || is_malware || is_tracker {
-            let reason = if is_malware {
+        if (is_punycode && policy.urls.check_idn_homographs) || is_malware || is_tracker || is_internal {
+            let reason = if is_internal {
+                "Internal network address (SSRF)"
+            } else if is_malware {
                 "Known malware domain"
             } else if is_tracker {
                 "Tracking beacon domain"
@@ -263,6 +271,39 @@ mod tests {
         let idn_url = "https://xn--apple-43d.com/login";
         let outcome = inspect_url(idn_url, false, &policy);
         assert!(matches!(outcome, UrlCheckOutcome::Remove(_)));
+    }
+
+    #[test]
+    fn test_internal_address_in_url_is_neutralised() {
+        let policy = Policy::balanced();
+        let outcome = inspect_url("http://169.254.169.254/latest/meta-data/", true, &policy);
+        assert!(matches!(
+            outcome,
+            UrlCheckOutcome::Rewritten(_, ref action) if action.rule_fired.contains("Internal network address")
+        ));
+        assert!(!matches!(
+            inspect_url("http://10.0.0.1/admin", false, &policy),
+            UrlCheckOutcome::Safe(_)
+        ));
+
+        // An explicitly trusted internal host is left alone.
+        let mut trusting = Policy::balanced();
+        trusting
+            .resources
+            .trusted_internal_hosts
+            .insert("localhost".to_string());
+        assert!(matches!(
+            inspect_url("http://localhost:3100/page", true, &trusting),
+            UrlCheckOutcome::Safe(_)
+        ));
+
+        // Turning the internal-address guard off turns the rewrite off too.
+        let mut open = Policy::balanced();
+        open.resources.block_internal_ips = false;
+        assert!(matches!(
+            inspect_url("http://10.0.0.1/admin", false, &open),
+            UrlCheckOutcome::Safe(_)
+        ));
     }
 
     #[test]

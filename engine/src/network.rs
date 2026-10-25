@@ -93,9 +93,7 @@ pub fn fetch_resources_with_cache(
         }
 
         // SSRF check: block requests to private, loopback, or local IPs
-        if policy.resources.block_internal_ips
-            && is_ssrf_host(&parsed_url, policy.resources.resolve_dns_for_ssrf)
-        {
+        if is_blocked_internal(&parsed_url, policy) {
             continue;
         }
 
@@ -232,6 +230,24 @@ pub fn fetch_resources_with_cache(
     }
 
     Ok(downloaded_files)
+}
+
+/// Whether `url`'s host is in the policy's list of explicitly trusted internal hosts.
+pub fn is_trusted_internal_host(url: &Url, policy: &Policy) -> bool {
+    url.host_str().is_some_and(|host| {
+        policy
+            .resources
+            .trusted_internal_hosts
+            .contains(&host.to_ascii_lowercase())
+    })
+}
+
+/// Single SSRF decision used for every outgoing request (top-level inputs and sub-resources):
+/// blocked when the guard is on, the host is not explicitly trusted, and it is internal.
+pub fn is_blocked_internal(url: &Url, policy: &Policy) -> bool {
+    policy.resources.block_internal_ips
+        && !is_trusted_internal_host(url, policy)
+        && is_ssrf_host(url, policy.resources.resolve_dns_for_ssrf)
 }
 
 /// Checks if a parsed URL targets internal, private, loopback, or non-routable IPs (SSRF defense).
