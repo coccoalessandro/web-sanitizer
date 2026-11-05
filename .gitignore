@@ -5,7 +5,6 @@
 
 # Evaluation artefacts: regenerable with scripts/ (see README)
 /corpus_perf/
-/results/
 /results_diag/
 /.venv/
 __pycache__/

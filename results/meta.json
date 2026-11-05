@@ -1,0 +1,22 @@
+{
+  "platform": "macOS-26.5.2-arm64-arm-64bit",
+  "machine": "arm64",
+  "cpu_count": 8,
+  "python": "3.11.7",
+  "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+  "git_commit": "a10ca6a",
+  "cli": "/Users/matteobagnolini/Universita\u0300/Magistrale/first year/II/System and Device Programming/API Programming/progetto/web-sanitizer/target/release/cli",
+  "workers": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "reps": 5,
+  "experiments": "scale,memory,fetch",
+  "fetch_delay_ms": 5.0
+}
