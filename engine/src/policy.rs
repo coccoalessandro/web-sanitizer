@@ -261,8 +261,11 @@ impl Policy {
             resources: ResourcePolicy {
                 max_fetch_depth: 0, // no external resource downloads
                 max_requests_per_job: 0,
-                max_resource_size_bytes: 0,
-                max_decompressed_size_bytes: 0,
+                // Top-level inputs still need a byte budget: with 0 every remote URL was read
+                // as an empty document and silently reported as clean. Sub-resource fetching
+                // stays disabled through `max_fetch_depth: 0`.
+                max_resource_size_bytes: 1024 * 1024,
+                max_decompressed_size_bytes: 4 * 1024 * 1024,
                 max_image_pixels: 10_000_000,
                 block_active_documents: true,
                 resolve_dns_for_ssrf: true,
@@ -378,5 +381,27 @@ impl Policy {
 impl Default for Policy {
     fn default() -> Self {
         Self::balanced()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every built-in profile must be able to ingest a top-level remote input.
+    /// Regression test: a zero byte budget silently turned every URL into an
+    /// empty document reported as clean.
+    #[test]
+    fn test_profiles_have_nonzero_input_budget() {
+        for (name, policy) in [
+            ("strict", Policy::strict()),
+            ("balanced", Policy::balanced()),
+            ("relaxed", Policy::relaxed()),
+        ] {
+            assert!(
+                policy.resources.max_resource_size_bytes > 0,
+                "{name} profile has a zero input byte budget"
+            );
+        }
     }
 }

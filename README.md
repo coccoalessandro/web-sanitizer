@@ -56,7 +56,8 @@ Main options (`cargo run --bin cli -- --help` for the full list):
 | `-q` / `-v` / `--json-only` | output verbosity |
 
 Every policy field can also be overridden from the command line
-(e.g. `--max-fetch-depth 0`, `--block-internal-ips false`).
+(e.g. `--max-fetch-depth 0`, `--timeout-ms 2000`). `--trust-internal-host <HOST>` trusts one
+internal host (e.g. a local test origin) while every other internal address stays blocked.
 
 Refused inputs are never written to the output directory: a `.refused.txt` notice and the
 JSON report are written instead.
@@ -75,15 +76,15 @@ cargo run -p engine --example demo
 ### Security scenarios (evil-origin)
 
 The course-provided `evil-origin` Docker image serves the attack scenarios on port 3100
-(see the testing guide). Since the server runs on `localhost`, the internal-IP SSRF guard
-must be disabled for this run; SSRF blocking is covered by the unit tests in
-`engine/src/network.rs` and `engine/src/pipeline.rs`.
+(see the testing guide). The server runs on `localhost`, so it is explicitly trusted with
+`--trust-internal-host localhost`; the SSRF guard stays on for every other internal address,
+which is what `/html/ssrf-internal-reference` verifies.
 
 ```bash
 docker load -i evil-origin.tar
 docker run -d -p 3100:3100 --name evil-origin evil-origin
 cargo run --bin cli -- -u http://localhost:3100/html/script-tag [-u ...] \
-    --block-internal-ips false -o out/ --report-file report.json -v
+    --trust-internal-host localhost -o out/ --report-file report.json -v
 ```
 
 ### Performance benchmarks

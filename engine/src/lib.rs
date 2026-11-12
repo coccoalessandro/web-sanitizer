@@ -11,6 +11,9 @@
 //! - [`pipeline`]: Concurrent worker pool processing local files and remote URLs.
 //! - [`report`]: Structured, machine-readable audit reports of all sanitization actions.
 
+// The engine handles attacker-controlled bytes: no `unsafe` anywhere, enforced by the compiler.
+#![forbid(unsafe_code)]
+
 pub mod active_content;
 pub mod css;
 pub mod network;

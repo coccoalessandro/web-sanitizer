@@ -5,6 +5,8 @@
 //! custom JSON configuration loading, CLI argument overrides,
 //! file export (`--output-dir`), and structured JSON telemetry output.
 
+#![forbid(unsafe_code)]
+
 use clap::{Parser, ValueEnum};
 use engine::pipeline::{Job, PipelineStats, run_pipeline_with_workers};
 use engine::policy::Policy;
@@ -49,7 +51,7 @@ struct Args {
     #[arg(long)]
     report_file: Option<PathBuf>,
 
-    /// Predefined security profile to use (overrides config file if provided)
+    /// Predefined security profile to use (ignored when --config is given)
     #[arg(short, long)]
     profile: Option<Profile>,
 
