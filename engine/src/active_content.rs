@@ -125,13 +125,17 @@ fn references_entity(s: &str) -> bool {
     })
 }
 
-/// Inspects and sanitizes SVG bytes, stripping `<script>`, inline event handlers, and XML entity bombs.
+/// Inspects SVG bytes for XML entity bombs and active content.
+///
+/// An SVG carrying active content (scripts, inline event handlers, `javascript:` URLs,
+/// `<foreignObject>`) is refused in every profile. Rewriting it with string operations is
+/// not reliable, and an SVG reported as clean must not keep any of these constructs.
+/// Clean SVG is returned unchanged.
 pub fn inspect_and_sanitize_svg(
     svg_data: &[u8],
-    policy: &Policy,
+    _policy: &Policy,
 ) -> (Vec<u8>, Vec<SanitizationAction>, bool) {
     let mut actions = Vec::new();
-    let mut blocked = false;
 
     let text = String::from_utf8_lossy(svg_data);
 
@@ -146,54 +150,67 @@ pub fn inspect_and_sanitize_svg(
         return (Vec::new(), actions, true);
     }
 
-    // 2. Active content in SVG: scripts, onload, etc.
-    let dangerous_svg_tokens = [
-        ("<script", "SVG script element"),
-        ("onload=", "SVG onload handler"),
-        ("onerror=", "SVG onerror handler"),
-        ("onclick=", "SVG onclick handler"),
-        ("onmouseover=", "SVG onmouseover handler"),
-        ("xlink:href=\"javascript:", "SVG javascript link"),
-        ("href=\"javascript:", "SVG javascript link"),
-        ("<foreignobject", "SVG foreignObject container"),
-    ];
-
-    let mut sanitized_text = text.to_string();
+    // 2. Active content: scripts, foreignObject, javascript: URLs and any on*= handler
+    //    (not a fixed list: SVG has handlers such as onbegin or onend that HTML lacks).
     let lower = text.to_ascii_lowercase();
-
-    for (token, desc) in &dangerous_svg_tokens {
+    let mut findings: Vec<(&str, String)> = Vec::new();
+    for (token, desc) in [
+        ("<script", "SVG script element"),
+        ("<foreignobject", "SVG foreignObject container"),
+        ("javascript:", "SVG javascript URL"),
+    ] {
         if lower.contains(token) {
-            actions.push(SanitizationAction {
-                rule_fired: format!("Active SVG vector blocked: {}", desc),
-                location: Location::Document,
-                original_fragment: token.to_string(),
-                replaced_fragment: "Removed active SVG construct".to_string(),
-            });
-
-            if !policy.html.rewrite_active_content {
-                blocked = true;
-            }
+            findings.push((desc, token.to_string()));
         }
     }
-
-    if blocked {
-        return (Vec::new(), actions, true);
+    for handler in event_handler_attributes(&lower) {
+        findings.push(("SVG event handler", handler));
     }
 
-    // Rewrite/sanitize simple SVG script blocks if rewriting is allowed
-    if sanitized_text.contains("<script") {
-        while let Some(start) = sanitized_text.to_ascii_lowercase().find("<script") {
-            if let Some(end) = sanitized_text.to_ascii_lowercase()[start..].find("</script>") {
-                let full_end = start + end + 9;
-                sanitized_text.replace_range(start..full_end, "<!-- script removed -->");
-            } else {
-                sanitized_text.replace_range(start.., "");
-                break;
+    if findings.is_empty() {
+        return (svg_data.to_vec(), actions, false);
+    }
+    for (desc, fragment) in findings {
+        actions.push(SanitizationAction {
+            rule_fired: format!("Active SVG vector blocked: {}", desc),
+            location: Location::Document,
+            original_fragment: fragment,
+            replaced_fragment: "SVG refused: active content is never rewritten".to_string(),
+        });
+    }
+    (Vec::new(), actions, true)
+}
+
+/// Names of the inline event-handler attributes in `lower` (`onload=`, `onbegin =`, ...):
+/// an `on` preceded by whitespace or `/`, followed by letters and then `=`.
+fn event_handler_attributes(lower: &str) -> Vec<String> {
+    let bytes = lower.as_bytes();
+    let mut found: Vec<String> = Vec::new();
+    let mut i = 1;
+    while i + 2 < bytes.len() {
+        let starts_attribute = bytes[i - 1].is_ascii_whitespace() || bytes[i - 1] == b'/';
+        if starts_attribute && bytes[i] == b'o' && bytes[i + 1] == b'n' {
+            let mut end = i + 2;
+            while end < bytes.len() && bytes[end].is_ascii_alphabetic() {
+                end += 1;
             }
+            let mut eq = end;
+            while eq < bytes.len() && bytes[eq].is_ascii_whitespace() {
+                eq += 1;
+            }
+            if end > i + 2 && eq < bytes.len() && bytes[eq] == b'=' {
+                // ASCII-only boundaries, so the slice is always on char boundaries.
+                let name = lower[i..end].to_string();
+                if !found.contains(&name) {
+                    found.push(name);
+                }
+            }
+            i = end;
+        } else {
+            i += 1;
         }
     }
-
-    (sanitized_text.into_bytes(), actions, false)
+    found
 }
 
 /// Parses the image header to extract `(width, height)` and verifies it does not exceed `max_pixels`.
@@ -337,6 +354,30 @@ mod tests {
         let (_sanitized, actions, blocked) = inspect_and_sanitize_svg(evil_svg, &policy);
         assert!(blocked);
         assert!(!actions.is_empty());
+    }
+
+    #[test]
+    fn test_svg_active_content_is_refused_in_every_profile() {
+        // A handler outside the old fixed list and a single-quoted javascript: link:
+        // both used to survive in the output of the balanced and relaxed profiles.
+        let evil_svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\">\
+<animate onbegin='alert(1)' attributeName='x' dur='1s'/>\
+<a href='javascript:alert(2)'><text>x</text></a></svg>";
+        for policy in [Policy::strict(), Policy::balanced(), Policy::relaxed()] {
+            let (output, actions, blocked) = inspect_and_sanitize_svg(evil_svg, &policy);
+            assert!(blocked);
+            assert!(output.is_empty());
+            assert!(actions.iter().any(|a| a.original_fragment == "onbegin"));
+            assert!(actions.iter().any(|a| a.original_fragment == "javascript:"));
+        }
+
+        // Clean SVG passes unchanged; attribute names such as stroke-linejoin are not handlers.
+        let clean_svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\">\
+<path d=\"M0 0L5 5\" stroke-linejoin=\"round\"/></svg>";
+        let (output, actions, blocked) = inspect_and_sanitize_svg(clean_svg, &Policy::balanced());
+        assert!(!blocked);
+        assert!(actions.is_empty());
+        assert_eq!(output, clean_svg.to_vec());
     }
 
     #[test]

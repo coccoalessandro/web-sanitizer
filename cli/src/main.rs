@@ -570,10 +570,19 @@ fn output_extension(content: &[u8], job: &Job) -> String {
         return "svg".to_string();
     }
 
+    // The input's own extension is kept only for formats without a signature (css, xml,
+    // txt, ...). Content that reached this point without a PDF, image or SVG signature was
+    // sanitised as markup: labelling it .pdf or .png would hand it to the wrong viewer.
     if let Job::LocalFile(path) = job
         && let Some(ext) = path.extension().and_then(|s| s.to_str())
     {
-        return ext.to_ascii_lowercase();
+        let ext = ext.to_ascii_lowercase();
+        if !matches!(
+            ext.as_str(),
+            "pdf" | "png" | "gif" | "jpg" | "jpeg" | "webp" | "svg"
+        ) {
+            return ext;
+        }
     }
 
     "html".to_string()

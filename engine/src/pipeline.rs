@@ -335,7 +335,7 @@ fn sniff(bytes: &[u8]) -> Sniffed {
     let head = &bytes[..bytes.len().min(1024)];
     let text = String::from_utf8_lossy(head);
     let lower = text.trim_start_matches('\u{feff}').trim_start().to_ascii_lowercase();
-    if lower.contains("<svg") {
+    if is_svg_root(&lower) {
         Sniffed::Svg
     } else if lower.starts_with("<?xml") {
         Sniffed::Xml
@@ -345,6 +345,43 @@ fn sniff(bytes: &[u8]) -> Sniffed {
         Sniffed::Binary
     } else {
         Sniffed::Text
+    }
+}
+
+/// Whether the document's root element is `<svg>`. Only an XML declaration, processing
+/// instructions, comments and a non-HTML doctype may precede it: an HTML page that merely
+/// contains an inline `<svg>` icon is HTML, and must go through the HTML sanitiser.
+fn is_svg_root(lower: &str) -> bool {
+    let mut rest = lower;
+    loop {
+        if rest.starts_with("<svg") {
+            return true;
+        }
+        let skip = if rest.starts_with("<?") {
+            rest.find("?>").map(|end| end + 2)
+        } else if rest.starts_with("<!--") {
+            rest.find("-->").map(|end| end + 3)
+        } else if rest.starts_with("<!doctype") && !rest.starts_with("<!doctype html") {
+            doctype_len(rest)
+        } else {
+            return false;
+        };
+        match skip {
+            Some(len) => rest = rest[len..].trim_start(),
+            None => return false,
+        }
+    }
+}
+
+/// Length of a leading `<!doctype ...>`, including an internal subset in brackets.
+fn doctype_len(rest: &str) -> Option<usize> {
+    let gt = rest.find('>')?;
+    match rest[..gt].find('[') {
+        Some(open) => {
+            let close = open + rest[open..].find(']')?;
+            Some(close + rest[close..].find('>')? + 1)
+        }
+        None => Some(gt + 1),
     }
 }
 
@@ -450,8 +487,13 @@ fn sanitize_job(
 
     let job_name_lower = job.name().to_ascii_lowercase();
 
+    // Branches 2-4 are chosen from the content only, never from the name: PDF and raster
+    // images are returned verbatim (inspected, not rewritten), so a name ending in .png
+    // or .pdf must not route markup past the sanitiser. Content without a recognised
+    // signature falls through to the HTML sanitiser.
+
     // 2. PDF documents: inspect for active content (/JavaScript, /Launch, ...)
-    if sniffed == Sniffed::Pdf || has_extension(&job_name_lower, &[".pdf"]) {
+    if sniffed == Sniffed::Pdf {
         let check = inspect_pdf(&raw_bytes);
         let mut actions = mime_actions;
         let mut blocked = false;
@@ -473,7 +515,7 @@ fn sanitize_job(
     }
 
     // 3. SVG images: scripts, event handlers and XML entity bombs
-    if sniffed == Sniffed::Svg || has_extension(&job_name_lower, &[".svg"]) {
+    if sniffed == Sniffed::Svg {
         let (sanitized_svg, svg_actions, blocked) = inspect_and_sanitize_svg(&raw_bytes, policy);
         let mut actions = mime_actions;
         actions.extend(svg_actions);
@@ -484,7 +526,7 @@ fn sanitize_job(
     let is_raster = matches!(
         sniffed,
         Sniffed::Png | Sniffed::Gif | Sniffed::Jpeg | Sniffed::Webp
-    ) || has_extension(&job_name_lower, &[".png", ".gif", ".jpg", ".jpeg", ".webp"]);
+    );
     if is_raster {
         let mut actions = mime_actions;
         let mut blocked = false;
@@ -850,6 +892,24 @@ mod tests {
             .original_fragment
             .contains("declared image/png, sniffed text/html"));
         assert!(!String::from_utf8_lossy(&output).contains("<script"));
+    }
+
+    #[test]
+    fn test_name_cannot_route_markup_past_the_sanitiser() {
+        // An HTML page with an inline <svg> icon, behind URLs that look like an image,
+        // a PDF or an SVG: it used to be returned verbatim (or with its handlers intact).
+        let body = b"<html><body><svg width=\"8\" height=\"8\"></svg><p>hello</p>\
+<img src=\"x\" onerror=\"alert(1)\"><script>alert(2)</script></body></html>"
+            .to_vec();
+        for suffix in ["?x=.png", ".pdf", ".svg", ""] {
+            let url = serve_once(&head_for("text/html", &body), body.clone(), None) + suffix;
+            let (output, report) = remote_result(url);
+            let text = String::from_utf8_lossy(&output);
+            assert!(!report.file_blocked, "{suffix}: the page must be sanitised, not refused");
+            assert!(text.contains("hello"), "{suffix}: content lost: {text}");
+            assert!(!text.contains("<script"), "{suffix}: script survived: {text}");
+            assert!(!text.contains("onerror"), "{suffix}: handler survived: {text}");
+        }
     }
 
     #[test]
