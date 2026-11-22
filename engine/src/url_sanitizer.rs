@@ -24,8 +24,9 @@ pub enum UrlCheckOutcome {
 
 /// Inspects a raw URL string against security policies.
 pub fn inspect_url(raw_url: &str, _is_src_attribute: bool, policy: &Policy) -> UrlCheckOutcome {
-    // 0. Decode HTML numeric entities (e.g. &#x09;, &#10;) which browsers decode before protocol dispatch
-    let decoded_entities = decode_html_numeric_entities(raw_url);
+    // 0. Decode HTML character references (numeric like &#x09;, and named like &colon;),
+    //    which browsers decode before protocol dispatch. lol_html gives us the raw value.
+    let decoded_entities = decode_html_character_references(raw_url);
 
     // 1. Strip ASCII whitespace and control characters (which browsers ignore during protocol dispatch)
     let clean_str: String = decoded_entities
@@ -263,8 +264,11 @@ fn find_authority_confusion(url: &str) -> Option<&'static str> {
     }
 }
 
-/// Decodes decimal and hexadecimal HTML numeric character references (e.g. `&#x09;`, `&#10;`).
-fn decode_html_numeric_entities(input: &str) -> String {
+/// Decodes HTML character references in a single pass, as a browser does: decimal and
+/// hexadecimal numeric references (`&#x09;`, `&#10;`) and the named references that
+/// produce ASCII characters able to change how a URL is read (`&colon;`, `&Tab;`, ...).
+/// Without the named ones, `javascript&colon;alert(1)` would not look like `javascript:`.
+fn decode_html_character_references(input: &str) -> String {
     let mut result = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
 
@@ -297,11 +301,56 @@ fn decode_html_numeric_entities(input: &str) -> String {
             {
                 result.push(decoded_char);
             }
+        } else if c == '&' && chars.peek().is_some_and(|n| n.is_ascii_alphabetic()) {
+            // Named reference: look ahead on a clone, consume only if it is a known name
+            // followed by ';'. Otherwise the '&' is literal and the letters are copied as usual.
+            let mut look = chars.clone();
+            let mut name = String::new();
+            while let Some(&nc) = look.peek() {
+                if nc.is_ascii_alphanumeric() && name.len() < 16 {
+                    name.push(nc);
+                    look.next();
+                } else {
+                    break;
+                }
+            }
+            match (look.peek().copied(), named_character_reference(&name)) {
+                (Some(';'), Some(decoded_char)) => {
+                    look.next(); // consume ';'
+                    result.push(decoded_char);
+                    chars = look;
+                }
+                _ => result.push('&'),
+            }
         } else {
             result.push(c);
         }
     }
     result
+}
+
+/// HTML5 named character references (case-sensitive) for the ASCII characters that matter
+/// when a URL is classified: scheme separator, whitespace, authority and path delimiters.
+fn named_character_reference(name: &str) -> Option<char> {
+    Some(match name {
+        "colon" => ':',
+        "Tab" => '\t',
+        "NewLine" => '\n',
+        "sol" => '/',
+        "bsol" => '\\',
+        "commat" => '@',
+        "percnt" => '%',
+        "period" => '.',
+        "quest" => '?',
+        "num" => '#',
+        "semi" => ';',
+        "lpar" => '(',
+        "rpar" => ')',
+        "equals" => '=',
+        "excl" => '!',
+        "amp" | "AMP" => '&',
+        _ => return None,
+    })
 }
 
 #[cfg(test)]

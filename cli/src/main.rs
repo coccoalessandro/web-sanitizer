@@ -503,7 +503,9 @@ fn sanitize_filename_for_job(job: &Job, index: usize) -> String {
         Job::RemoteUrl(u) => {
             let safe: String = u
                 .chars()
-                .map(|c| if c.is_alphanumeric() { c } else { '_' })
+                // ASCII only: the name is cut at 40 bytes below, which must never fall
+                // inside a multi-byte character (that would panic).
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
                 .collect();
             let truncated = if safe.len() > 40 { &safe[..40] } else { &safe };
             format!("url_{}_{}", index, truncated)
@@ -591,6 +593,15 @@ fn output_extension(content: &[u8], job: &Job) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_output_name_of_non_ascii_url_does_not_panic() {
+        // Before the fix, 'è' straddled byte 40 and `&safe[..40]` panicked.
+        let job = Job::RemoteUrl("http://localhost:8000/index.html?aaaaaaèx".to_string());
+        let name = sanitize_filename_for_job(&job, 0);
+        assert!(name.is_ascii());
+        assert!(name.len() <= "url_0_".len() + 40);
+    }
 
     #[test]
     fn test_scan_directory_finds_html() {

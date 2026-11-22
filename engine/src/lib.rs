@@ -95,6 +95,32 @@ mod tests {
         assert!(output_string.contains("sandbox"));
     }
 
+    #[test]
+    fn test_named_character_references_cannot_hide_javascript() {
+        // Browsers decode &colon; and &Tab; before reading the scheme: both links run script.
+        let policy = Policy::balanced();
+        let html = b"<a href=\"javascript&colon;alert(1)\">a</a>\
+<a href=\"java&Tab;script:alert(2)\">b</a>\
+<a href=\"https://example.com/?x=1&amp;y=2\">c</a>";
+        let (output_bytes, _) = sanitize_html(html, &policy).unwrap();
+        let output_string = String::from_utf8(output_bytes).unwrap();
+        assert!(!output_string.contains("alert"), "{output_string}");
+        // An ordinary link with &amp; in the query is left alone.
+        assert!(output_string.contains("https://example.com/?x=1&amp;y=2"), "{output_string}");
+    }
+
+    #[test]
+    fn test_relaxed_keeps_the_sandbox_it_adds() {
+        // The sandbox added to an untrusted iframe used to be stripped right after by the
+        // attribute allow-list; an attacker-supplied sandbox value is overwritten.
+        let policy = Policy::relaxed();
+        let html = b"<iframe src=\"https://evil.invalid/x\" sandbox=\"allow-scripts\"></iframe>";
+        let (output_bytes, _) = sanitize_html(html, &policy).unwrap();
+        let output_string = String::from_utf8(output_bytes).unwrap();
+        assert!(output_string.contains("sandbox=\"\""), "{output_string}");
+        assert!(!output_string.contains("allow-scripts"), "{output_string}");
+    }
+
     // 5. IDN Homograph Test
     #[test]
     fn test_idn_homograph_blocking() {

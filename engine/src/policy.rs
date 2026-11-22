@@ -326,6 +326,9 @@ impl Policy {
                 "width".to_string(),
                 "height".to_string(),
                 "allowfullscreen".to_string(),
+                // Added by the parser to untrusted iframes: it must survive the
+                // attribute allow-list that runs right after.
+                "sandbox".to_string(),
             ]),
         );
         allowed_attributes.insert(
